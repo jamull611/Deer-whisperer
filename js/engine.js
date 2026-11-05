@@ -18,6 +18,15 @@
     scentConeDeg: 50,     // half-width of the scent plume we treat as dangerous
   };
 
+  /** Settings merged over defaults, with any non-numeric value (e.g. from an old backup) replaced by the default. */
+  function config(settings) {
+    const c = { ...DEFAULTS, ...(settings || {}) };
+    for (const k of ['radiusYd', 'halfLifeDays', 'shotYd', 'scentConeDeg']) { const v = Number(c[k]); c[k] = Number.isFinite(v) && v > 0 ? v : DEFAULTS[k]; }
+    return c;
+  }
+  /** True only for a real distance inside the radius (a broken location gives NaN, which must NOT count as near). */
+  const within = (d, r) => Number.isFinite(d) && d <= r;
+
   function localMidnight(ms) { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d; }
 
   /** Classify a time as AM / PM / midday / night relative to sunrise/sunset at that place. */
@@ -78,7 +87,7 @@
     for (const s of sightings) {
       if (targetBuckId && s.buckId !== targetBuckId) continue;
       const d = Geo.distanceYd(stand, s.cam);
-      if (d > cfg.radiusYd) continue;
+      if (!within(d, cfg.radiusYd)) continue;
       const w = s.kind === 'buck' ? 1 : 0.5;
       pts.push({ p: s.cam, w });
       if (s.heading != null) pts.push({ p: Geo.offset(s.cam, Geo.norm(s.heading + 180), 80), w: w * 0.8 }); // where it came from
@@ -154,17 +163,18 @@
 
     // --- Activity near this stand ---
     let act = 0, actRaw = 0, n = 0;
+    const feeding = {};
     for (const s of sightings) {
       if (targetBuckId && s.buckId !== targetBuckId) continue;
       const d = Geo.distanceYd(stand, s.cam);
-      if (d > ctx.cfg.radiusYd) continue;
+      if (!within(d, ctx.cfg.radiusYd)) continue;
       const ageDays = Math.max(0, (now - s.takenAt) / DAY);
       const w = Math.pow(0.5, ageDays / cfg.halfLifeDays) * (1 - 0.6 * d / cfg.radiusYd) * (s.kind === 'buck' ? 1 : 0.35);
       const pm = s.period === which ? 1 : s.period === 'midday' ? 0.5 : s.period === 'night' ? 0.25 : 0.4;
-      actRaw += w * pm; n++;
+      actRaw += w * pm; n++; feeding[s.cam.name] = Math.round(d);
     }
     act = 1 - Math.exp(-actRaw / 1.5);
-    if (n) reasons.push({ v: act >= 0.5 ? 1 : 0, t: `${n} sighting${n > 1 ? 's' : ''} within ${cfg.radiusYd} yd${targetBuckId ? ' of this buck' : ''}; ${act >= 0.5 ? 'strong' : act >= 0.2 ? 'some' : 'little'} recent ${which === 'AM' ? 'morning' : 'evening'} activity` });
+    if (n) reasons.push({ v: act >= 0.5 ? 1 : 0, t: `${n} sighting${n > 1 ? 's' : ''} within ${cfg.radiusYd} yd${targetBuckId ? ' of this buck' : ''}; ${act >= 0.5 ? 'strong' : act >= 0.2 ? 'some' : 'little'} recent ${which === 'AM' ? 'morning' : 'evening'} activity, from ${Object.entries(feeding).sort((a, b) => a[1] - b[1]).map(([c, yd]) => `${c} (${yd} yds)`).join(', ')}` });
     else reasons.push({ v: -1, t: targetBuckId ? 'This buck has not been seen near this stand' : 'No camera activity near this stand yet' });
 
     // --- Wind ---
@@ -250,18 +260,18 @@
       for (const s of sightings) {
         if (s.buckId !== b.id) continue;
         const d = Geo.distanceYd(r.stand, s.cam);
-        if (d > cfg.radiusYd) continue;
+        if (!within(d, cfg.radiusYd)) continue;
         const ageDays = Math.max(0, (now - s.takenAt) / DAY);
         const pm = s.period === r.which ? 1 : s.period === 'midday' ? 0.5 : s.period === 'night' ? 0.2 : 0.35;
         raw += Math.pow(0.5, ageDays / cfg.halfLifeDays) * (1 - 0.6 * d / cfg.radiusYd) * pm;
-        n++; last = Math.max(last, s.takenAt); cams[s.cam.name] = (cams[s.cam.name] || 0) + 1;
+        n++; last = Math.max(last, s.takenAt); cams[s.cam.name] = Math.round(d);
         if (s.period === r.which) same++;
       }
       if (!n) continue;
       let chance = 1 - Math.exp(-raw / 2);
       const why = [];
       const daysAgo = Math.round((now - last) / DAY);
-      why.push(`seen ${n}× at ${Object.keys(cams).join(', ')}, last ${daysAgo <= 0 ? 'today' : daysAgo === 1 ? 'yesterday' : daysAgo + ' days ago'}`);
+      why.push(`seen ${n}× at ${Object.entries(cams).map(([c, yd]) => `${c} (${yd} yds away)`).join(', ')}, last ${daysAgo <= 0 ? 'today' : daysAgo === 1 ? 'yesterday' : daysAgo + ' days ago'}`);
       if (same) why.push(`${same} in the ${r.which === 'AM' ? 'morning' : 'evening'}`);
       if (r.wx && r.wx.windDir != null) {
         const w = windSafety(r.stand, r.wx.windDir, threatPoints(r.stand, sightings, cfg, b.id), cfg);
@@ -281,7 +291,7 @@
 
   /** Learned weather patterns for every buck and every stand. */
   function conditionPatterns({ bucks, stands, sightings, weather, settings, center, now = Date.now() }) {
-    const cfg = { ...DEFAULTS, ...(settings || {}) };
+    const cfg = config(settings);
     const out = { bucks: {}, stands: {} };
     const day = sightings.filter((s) => s.period !== 'night' && s.cond);
     if (!weather || !center) return out;
@@ -291,14 +301,14 @@
     out.baseline = base;
     for (const b of bucks) out.bucks[b.id] = Patterns.analyse(Patterns.visits(day.filter((s) => s.buckId === b.id), (s) => s.buckId), base);
     for (const st of stands) {
-      const near = day.filter((s) => Geo.distanceYd(st, s.cam) <= cfg.radiusYd);
+      const near = day.filter((s) => within(Geo.distanceYd(st, s.cam), cfg.radiusYd));
       out.stands[st.id] = Patterns.analyse(Patterns.visits(near, (s) => s.buckId || 'anon-' + s.kind), base);
     }
     return out;
   }
 
   function planSits({ stands, sightings, weather, settings, targetBuckId, patterns, cond, bucks = [], now = Date.now(), days = 16 }) {
-    const cfg = { ...DEFAULTS, ...(settings || {}) };
+    const cfg = config(settings);
     const ctx = { sightings, weather, cfg, targetBuckId, patterns, cond, now };
     const lastHour = weather && weather.hours.length ? weather.hours[weather.hours.length - 1].t : now + 7 * DAY;
     const out = [];
@@ -319,7 +329,7 @@
    * the deer traffic on the most upcoming sits (falling back to all 8 winds if no forecast).
    */
   function recommendStands({ cameras, stands, sightings, weather, settings, now = Date.now() }) {
-    const cfg = { ...DEFAULTS, ...(settings || {}) };
+    const cfg = config(settings);
     const upcoming = weather ? weather.hours.filter((h) => h.t > now && h.t < now + 10 * DAY && period(h.t, cameras[0]?.lat || 0, cameras[0]?.lng || 0) !== 'night') : [];
     const recs = [];
     for (const cam of cameras) {
@@ -359,7 +369,7 @@
 
   /** Good-wind list for an existing stand from the deer data around it. */
   function standWinds(stand, sightings, settings) {
-    const cfg = { ...DEFAULTS, ...(settings || {}) };
+    const cfg = config(settings);
     if (stand.goodWinds && stand.goodWinds.length) return { winds: stand.goodWinds, source: 'manual' };
     const pts = threatPoints(stand, sightings, cfg, null);
     if (!pts.length) return { winds: [], source: 'none' };
