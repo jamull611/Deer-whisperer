@@ -16,6 +16,7 @@ No server, no account, no build step. Your data stays on your device.
 | **Bucks** | A card for each named buck with a pattern summary: cameras, timing (AM/midday/PM/night), travel direction, and the winds he has shown up on in daylight. |
 | **Plan** | Scores every morning and evening sit, at every stand, for the next ~16 days (0–100), with the reasons. Pick a buck to plan just for him. |
 | **Suggested stands** | For cameras with deer activity and no stand within 150 yds, it suggests a spot at your shooting distance, downwind of the travel route, and lists the winds it works on. |
+| **Property lines** | Draw your boundary on the map or import a KML/GeoJSON (onX, HuntStand, county GIS). Mark off-limits areas. Suggested stands stay inside your property, 20+ yds from the line; "Can't hunt there" skips a spot and finds the next best. |
 | **AI ID (optional)** | With your own Anthropic API key, Claude looks at each photo, matches bucks against your reference photos, estimates points, reads the date/temperature strip, and guesses travel direction. You confirm or correct it. |
 
 ## Buck ID inside Claude (no API credits)

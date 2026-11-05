@@ -51,10 +51,19 @@
         <button id="add-camera">＋ Camera</button>
         <button id="add-stand">＋ Stand</button>
         <button id="locate-me" class="ghost">◎ My location</button>
+        <button id="draw-prop" class="ghost">✏ Property line</button>
+        <button id="draw-off" class="ghost">⛔ Off-limits area</button>
+        <label class="file-btn ghost">⬆ Import boundary<input id="import-area" type="file" accept=".kml,.geojson,.json,application/vnd.google-earth.kml+xml,application/geo+json,application/json" hidden></label>
         <span id="map-hint" class="muted"></span>
       </div>
+      <div id="draw-bar" class="toolbar card" hidden>
+        <span id="draw-msg" class="small"></span>
+        <button id="draw-undo" class="ghost tiny">Undo point</button>
+        <button id="draw-done" class="tiny">Finish</button>
+        <button id="draw-cancel" class="ghost tiny">Cancel</button>
+      </div>
       <div id="map"></div>
-      <p class="muted small">Tap a marker to edit it. Drag to move. Arrow on a camera = the way the lens faces. Dashed markers are suggested stand spots.</p>
+      <p class="muted small">Tap a marker to edit it. Drag to move. Arrow on a camera = the way the lens faces. Dashed markers are suggested stand spots. Green outline = your property line (suggestions stay inside it, 20+ yds from the line); red = off-limits. Export a KML from onX, HuntStand or your county GIS site to import your boundary.</p>
     </section>
 
     <!-- PHOTOS -->
@@ -120,7 +129,7 @@
           <button id="demo" class="ghost">Load demo property</button>
           <button id="wipe" class="danger">Erase everything</button>
         </div>
-        <p class="small muted">App version <b id="app-version">2026.11.05-9</b> · features: weather patterns, buck chances on Plan, better buck names</p>
+        <p class="small muted">App version <b id="app-version">2026.11.05-10</b> · features: property lines, weather patterns, buck chances on Plan, better buck names</p>
       </div>
     </section>
   </main>

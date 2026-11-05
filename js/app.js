@@ -26,6 +26,8 @@
       radiusYd: await Store.getSetting('radiusYd', Engine.DEFAULTS.radiusYd),
       center: await Store.getSetting('center', null),
     };
+    S.areas = await Store.getSetting('areas', []);
+    S.rejected = await Store.getSetting('rejectedSpots', []);
     try { S.apiKey = localStorage.getItem('dw.apiKey') || ''; S.model = localStorage.getItem('dw.model') || AI.DEFAULT_MODEL; } catch { S.apiKey = ''; S.model = AI.DEFAULT_MODEL; }
   }
   function center() {
@@ -101,6 +103,7 @@
     const street = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
     sat.addTo(map);
     L.control.layers({ Satellite: sat, Topo: topo, Street: street }).addTo(map);
+    renderAreas();
     layer = L.layerGroup().addTo(map);
     map.on('click', onMapClick);
     renderMarkers();
@@ -134,11 +137,13 @@
       m.on('dragend', async () => { s.lat = m.getLatLng().lat; s.lng = m.getLatLng().lng; await Store.put('stands', s); dataChanged(); });
     }
     for (const r of S.recs) {
+      if (r.blocked) continue;
       const m = L.marker([r.lat, r.lng], { icon: icon('rec') }).addTo(layer);
       m.bindPopup(() => {
         const d = document.createElement('div');
-        d.innerHTML = `<b>Suggested stand</b><p>${esc(r.text)}</p><button>Add stand here</button>`;
-        d.querySelector('button').onclick = () => addStandAt(r.lat, r.lng, `Stand near ${r.cam.name}`);
+        d.innerHTML = `<b>Suggested stand</b><p>${esc(r.text)}</p><div class="row"><button data-a="add">Add stand here</button><button data-a="no" class="ghost" style="color:#222">Can't hunt there</button></div>`;
+        d.querySelector('[data-a=add]').onclick = () => addStandAt(r.lat, r.lng, `Stand near ${r.cam.name}`);
+        d.querySelector('[data-a=no]').onclick = () => rejectSpot(r);
         return d;
       });
     }
@@ -173,7 +178,8 @@
   function standForm(s, sts) {
     const d = document.createElement('div');
     const w = Engine.standWinds(s, sts, S.settings);
-    const sugg = w.source === 'computed' ? `<div class="small">From your camera data, best winds: <b>${w.winds.join(', ') || 'none clear'}</b></div>` : '';
+    const outside = !onProperty(s) ? '<div class="small" style="color:#c92a2a">⚠ This stand is outside your property line.</div>' : '';
+    const sugg = outside + (w.source === 'computed' ? `<div class="small">From your camera data, best winds: <b>${w.winds.join(', ') || 'none clear'}</b></div>` : '');
     d.innerHTML = `<label>Name<input data-f="name" value="${esc(s.name)}"></label>
       <label>Type<select data-f="type">${['Ladder', 'Hang-on', 'Climber', 'Ground blind', 'Box blind', 'Saddle'].map((t) => `<option ${s.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <div class="small" style="color:#555">Good winds you already know (optional — leave blank to let the app work it out):</div>
@@ -195,7 +201,86 @@
     return d;
   }
 
+  function computeRecs() {
+    S.recs = S.cameras.length ? Engine.recommendStands({ cameras: S.cameras, stands: S.stands, sightings: sightings(), weather: S.weather, settings: S.settings, areas: S.areas, rejected: S.rejected }) : [];
+  }
+  async function rejectSpot(r) {
+    S.rejected.push({ lat: r.lat, lng: r.lng, camId: r.cam.id, at: Date.now() });
+    await Store.setSetting('rejectedSpots', S.rejected);
+    computeRecs(); if (map) map.closePopup(); renderMarkers(); renderPlan();
+    const next = S.recs.find((x) => x.cam.id === r.cam.id);
+    toast(next && !next.blocked ? `Skipped. New suggestion: ${next.text.split('.')[0]}.` : `Skipped. No other huntable spot near ${r.cam.name}.`, 4500);
+  }
+  const hasProperty = () => S.areas.some((a) => a.kind === 'property');
+  const onProperty = (p) => !hasProperty() || S.areas.some((a) => a.kind === 'property' && Geo.inPolygon(p, a.points));
+
+  // ----- property lines and off-limits areas -----
+  let areaLayer, drawing = null;
+  function renderAreas() {
+    if (!map) return;
+    if (!areaLayer) areaLayer = L.layerGroup().addTo(map);
+    areaLayer.clearLayers();
+    for (const a of S.areas) {
+      const off = a.kind === 'offlimits';
+      const poly = L.polygon(a.points, { color: off ? '#e03131' : '#40c057', weight: 3, fillOpacity: off ? 0.25 : 0.05, dashArray: off ? '6 6' : null, interactive: true }).addTo(areaLayer);
+      poly.bindPopup(() => {
+        const d = document.createElement('div');
+        d.innerHTML = `<label>Name<input data-f="name" value="${esc(a.name)}"></label><div class="small">${off ? 'Off-limits: no stands suggested here.' : 'Your property: suggestions stay inside, 20+ yds from the line.'}</div><div class="row" style="margin-top:.4rem"><button data-a="save">Save</button><button data-a="del" class="danger">Delete</button></div>`;
+        d.querySelector('[data-a=save]').onclick = async () => { a.name = d.querySelector('[data-f=name]').value || a.name; await saveAreas(); map.closePopup(); };
+        d.querySelector('[data-a=del]').onclick = async () => { if (!confirm(`Delete "${a.name}"?`)) return; S.areas = S.areas.filter((x) => x !== a); await saveAreas(); map.closePopup(); };
+        return d;
+      });
+    }
+  }
+  async function saveAreas() { await Store.setSetting('areas', S.areas); renderAreas(); computeRecs(); renderMarkers(); renderPlan(); }
+  function startDraw(kind) {
+    initMap(); placing = null;
+    if (drawing) drawing.line.remove();
+    drawing = { kind, pts: [], line: L.polyline([], { color: kind === 'offlimits' ? '#e03131' : '#40c057', weight: 3, dashArray: '4 6' }).addTo(map) };
+    $('#draw-bar').hidden = false; updateDrawMsg();
+  }
+  function updateDrawMsg() {
+    if (!drawing) return;
+    drawing.line.setLatLngs(drawing.pts.length > 2 ? [...drawing.pts, drawing.pts[0]] : drawing.pts);
+    $('#draw-msg').textContent = `${drawing.kind === 'offlimits' ? 'Off-limits area' : 'Property line'}: tap the map at each corner (${drawing.pts.length} point${drawing.pts.length === 1 ? '' : 's'}).`;
+    $('#draw-done').disabled = drawing.pts.length < 3;
+  }
+  function endDraw() { if (drawing) drawing.line.remove(); drawing = null; $('#draw-bar').hidden = true; }
+  async function finishDraw() {
+    if (!drawing || drawing.pts.length < 3) return;
+    const n = S.areas.filter((a) => a.kind === drawing.kind).length + 1;
+    S.areas.push({ id: Store.uid(), kind: drawing.kind, name: drawing.kind === 'offlimits' ? `Off-limits ${n}` : n > 1 ? `Property ${n}` : 'My property', points: drawing.pts });
+    endDraw(); await saveAreas(); toast('Saved. Suggestions now respect this boundary.');
+  }
+  /** Read polygons from a KML (onX, Google Earth, county GIS) or GeoJSON file. */
+  function parseAreas(text, fileName) {
+    const out = [];
+    const t = text.trim();
+    if (t.startsWith('{')) {
+      const gj = JSON.parse(t);
+      const feats = gj.type === 'FeatureCollection' ? gj.features : gj.type === 'Feature' ? [gj] : [{ geometry: gj, properties: {} }];
+      for (const f of feats) {
+        const g = f.geometry || {}, name = (f.properties && (f.properties.name || f.properties.NAME)) || '';
+        const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+        for (const p of polys) if (p[0] && p[0].length > 2) out.push({ name, points: p[0].map(([lng, lat]) => [lat, lng]) });
+      }
+    } else {
+      const doc = new DOMParser().parseFromString(t, 'application/xml');
+      for (const poly of doc.getElementsByTagName('Polygon')) {
+        const outer = poly.getElementsByTagName('outerBoundaryIs')[0] || poly;
+        const c = outer.getElementsByTagName('coordinates')[0];
+        if (!c) continue;
+        const pts = c.textContent.trim().split(/\s+/).map((x) => x.split(',').map(Number)).filter((x) => x.length >= 2 && isFinite(x[0]) && isFinite(x[1])).map(([lng, lat]) => [lat, lng]);
+        let pm = poly.parentNode; while (pm && pm.nodeName !== 'Placemark') pm = pm.parentNode;
+        const nm = pm && pm.getElementsByTagName('name')[0];
+        if (pts.length > 2) out.push({ name: nm ? nm.textContent.trim() : '', points: pts });
+      }
+    }
+    return out.map((a, i) => ({ id: Store.uid(), kind: 'property', name: a.name || (fileName || 'Property').replace(/\.[^.]+$/, '') + (out.length > 1 ? ` ${i + 1}` : ''), points: a.points }));
+  }
+
   function onMapClick(e) {
+    if (drawing) { drawing.pts.push([e.latlng.lat, e.latlng.lng]); updateDrawMsg(); return; }
     if (!placing) return;
     const { lat, lng } = e.latlng, kind = placing; placing = null; $('#map-hint').textContent = '';
     if (kind === 'camera') {
@@ -507,11 +592,19 @@
     rb.innerHTML = S.recs.length ? '' : '<div class="empty small">None right now. Suggestions appear for cameras with deer activity and no stand within 150 yds.</div>';
     S.recs.forEach((r) => {
       const d = document.createElement('div'); d.className = 'rec';
-      d.innerHTML = `<b>⭐ Near ${esc(r.cam.name)}</b> <span class="pill">${r.sightings} sightings${r.bucks ? ` · ${r.bucks} buck${r.bucks > 1 ? 's' : ''}` : ''}</span><p class="small">${esc(r.text)}</p><div class="row"><button class="tiny" data-a="show">Show on map</button><button class="tiny ghost" data-a="add">Add as stand</button></div>`;
-      d.querySelector('[data-a=show]').onclick = () => { showTab('map'); map.setView([r.lat, r.lng], 18); };
-      d.querySelector('[data-a=add]').onclick = () => addStandAt(r.lat, r.lng, `Stand near ${r.cam.name}`);
+      d.innerHTML = `<b>${r.blocked ? '⛔' : '⭐'} Near ${esc(r.cam.name)}</b> <span class="pill">${r.sightings} sightings${r.bucks ? ` · ${r.bucks} buck${r.bucks > 1 ? 's' : ''}` : ''}</span><p class="small">${esc(r.text)}</p>` +
+        (r.blocked ? '' : `<div class="row"><button class="tiny" data-a="show">Show on map</button><button class="tiny ghost" data-a="add">Add as stand</button><button class="tiny ghost" data-a="no">Can't hunt there</button></div>`);
+      if (!r.blocked) {
+        d.querySelector('[data-a=show]').onclick = () => { showTab('map'); map.setView([r.lat, r.lng], 18); };
+        d.querySelector('[data-a=add]').onclick = () => addStandAt(r.lat, r.lng, `Stand near ${r.cam.name}`);
+        d.querySelector('[data-a=no]').onclick = () => rejectSpot(r);
+      }
       rb.appendChild(d);
     });
+    const notes = [];
+    if (!hasProperty() && S.recs.length) notes.push('Tip: draw or import your property line on the Map so suggestions stay on land you can hunt.');
+    if (S.rejected.length) notes.push(`${S.rejected.length} spot${S.rejected.length > 1 ? 's' : ''} marked "can't hunt there" ${S.rejected.length > 1 ? 'are' : 'is'} skipped. <button class="tiny ghost" id="reset-rejected">Reset</button>`);
+    if (notes.length) { rb.insertAdjacentHTML('beforeend', `<p class="small muted">${notes.join('<br>')}</p>`); const rr = $('#reset-rejected'); if (rr) rr.onclick = async () => { S.rejected = []; await Store.setSetting('rejectedSpots', []); computeRecs(); renderMarkers(); renderPlan(); }; }
   }
 
   // ---------- refresh ----------
@@ -520,7 +613,7 @@
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(async () => {
       if (!light && !S.weather) await ensureWeather();
-      S.recs = S.cameras.length ? Engine.recommendStands({ cameras: S.cameras, stands: S.stands, sightings: sightings(), weather: S.weather, settings: S.settings }) : [];
+      computeRecs();
       renderMarkers();
       if ($('#tab-plan').classList.contains('active')) renderPlan();
       if ($('#tab-bucks').classList.contains('active')) renderBucks();
@@ -569,7 +662,7 @@
     if (reload && map) { const c = center(); if (c) map.setView([c.lat, c.lng], 16); }
     renderSettings();
     await ensureWeather();
-    S.recs = S.cameras.length ? Engine.recommendStands({ cameras: S.cameras, stands: S.stands, sightings: sightings(), weather: S.weather, settings: S.settings }) : [];
+    computeRecs();
     renderMarkers(); renderPlan(); renderPhotos(); renderBucks();
   }
 
@@ -583,6 +676,21 @@
         map.setView([pos.coords.latitude, pos.coords.longitude], 17);
         S.settings.center = { lat: pos.coords.latitude, lng: pos.coords.longitude }; Store.setSetting('center', S.settings.center);
       }, () => toast('Could not get your location'));
+    };
+    $('#draw-prop').onclick = () => { showTab('map'); startDraw('property'); };
+    $('#draw-off').onclick = () => { showTab('map'); startDraw('offlimits'); };
+    $('#draw-undo').onclick = () => { if (drawing) { drawing.pts.pop(); updateDrawMsg(); } };
+    $('#draw-done').onclick = finishDraw;
+    $('#draw-cancel').onclick = endDraw;
+    $('#import-area').onchange = async (e) => {
+      const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+      try {
+        const found = parseAreas(await f.text(), f.name);
+        if (!found.length) { toast('No boundary shapes (polygons) found in that file.', 4000); return; }
+        S.areas.push(...found); await saveAreas();
+        initMap(); map.fitBounds(L.latLngBounds(found.flatMap((a) => a.points)).pad(0.15));
+        toast(`Imported ${found.length} boundar${found.length > 1 ? 'ies' : 'y'}. Tap one to rename it.`);
+      } catch (err) { toast('Could not read that file: ' + err.message, 5000); }
     };
     $('#up-files').onchange = (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) handleUpload(fs); };
     $('#ph-move-go').onclick = async () => {

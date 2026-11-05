@@ -56,5 +56,27 @@
     return off == null ? null : norm(facing + off);
   }
 
-  window.Geo = { distanceYd, bearing, offset, angDiff, compass, compass8, fromCompass, circularMean, travelHeading, norm };
+  /** Polygons are arrays of [lat, lng]. Flat-earth maths is accurate at property scale. */
+  function inPolygon(p, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [yi, xi] = poly[i], [yj, xj] = poly[j];
+      if ((yi > p.lat) !== (yj > p.lat) && p.lng < ((xj - xi) * (p.lat - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  /** Shortest distance in yards from a point to a polygon's edge. */
+  function distToEdgeYd(p, poly) {
+    const ky = 121740, kx = 121740 * Math.cos(rad(p.lat)); // yards per degree
+    let best = Infinity;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const ax = (poly[j][1] - p.lng) * kx, ay = (poly[j][0] - p.lat) * ky, bx = (poly[i][1] - p.lng) * kx, by = (poly[i][0] - p.lat) * ky;
+      const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+      const t = L2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L2)) : 0;
+      best = Math.min(best, Math.hypot(ax + t * dx, ay + t * dy));
+    }
+    return best;
+  }
+
+  window.Geo = { inPolygon, distToEdgeYd, distanceYd, bearing, offset, angDiff, compass, compass8, fromCompass, circularMean, travelHeading, norm };
 })();

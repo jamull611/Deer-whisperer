@@ -328,7 +328,19 @@
    * Tries 16 positions around the camera at shooting distance and picks the one whose scent clears
    * the deer traffic on the most upcoming sits (falling back to all 8 winds if no forecast).
    */
-  function recommendStands({ cameras, stands, sightings, weather, settings, now = Date.now() }) {
+  /**
+   * Where a stand may go: inside one of your property polygons (if you drew any) and at least
+   * `bufferYd` from its line, outside every off-limits area, and away from spots you ruled out.
+   */
+  function spotAllowed(p, areas, rejected, bufferYd = 20) {
+    const props = (areas || []).filter((a) => a.kind === 'property' && a.points && a.points.length > 2);
+    if (props.length && !props.some((a) => Geo.inPolygon(p, a.points) && Geo.distToEdgeYd(p, a.points) >= bufferYd)) return false;
+    if ((areas || []).some((a) => a.kind === 'offlimits' && a.points && a.points.length > 2 && Geo.inPolygon(p, a.points))) return false;
+    if ((rejected || []).some((r) => Geo.distanceYd(p, r) < 40)) return false;
+    return true;
+  }
+
+  function recommendStands({ cameras, stands, sightings, weather, settings, areas = [], rejected = [], now = Date.now() }) {
     const cfg = config(settings);
     const upcoming = weather ? weather.hours.filter((h) => h.t > now && h.t < now + 10 * DAY && period(h.t, cameras[0]?.lat || 0, cameras[0]?.lng || 0) !== 'night') : [];
     const recs = [];
@@ -343,8 +355,11 @@
       const ax = Geo.circularMean(hs.map((s) => ({ deg: (s.heading * 2) % 360 })));
       const axis = ax.mean != null && ax.strength > 0.3 ? ax.mean / 2 : null;
       let best = null;
-      for (let b = 0; b < 360; b += 22.5) {
-        const spot = { ...Geo.offset(cam, b, cfg.shotYd), goodWinds: null };
+      // Try 16 directions at three distances; only spots you can actually hunt are considered.
+      const dists = [cfg.shotYd, Math.round(cfg.shotYd * 1.6), Math.round(cfg.shotYd * 2.4)];
+      for (const [di, dist] of dists.entries()) for (let b = 0; b < 360; b += 22.5) {
+        const spot = { ...Geo.offset(cam, b, dist), goodWinds: null };
+        if (!spotAllowed(spot, areas, rejected)) continue;
         const pts = threatPoints(spot, near, { ...cfg, radiusYd: cfg.radiusYd + cfg.shotYd }, null);
         if (axis != null) { // the trail itself, both directions
           pts.push({ p: Geo.offset(cam, axis, 70), w: 0.7 }, { p: Geo.offset(cam, axis + 180, 70), w: 0.7 });
@@ -354,12 +369,18 @@
         else s = WIND8.reduce((a, k, i) => a + windSafety(spot, i * 45, pts, cfg), 0) / 8;
         // prefer spots off the trail (perpendicular) for a broadside shot
         if (axis != null) s -= 0.15 * Math.max(0, 1 - Math.min(Geo.angDiff(b, axis), Geo.angDiff(b, axis + 180)) / 90);
-        if (!best || s > best.s) best = { s, b, spot, pts };
+        s -= 0.06 * di; // closer to the camera is better when it works
+        if (!best || s > best.s) best = { s, b, spot, pts, dist };
+      }
+      if (!best) {
+        recs.push({ cam, blocked: true, sightings: near.length, bucks: new Set(bucks.map((b) => b.buckId).filter(Boolean)).size,
+          text: `No huntable spot within ${dists[2]} yds of ${cam.name}: it is outside your property line, in an off-limits area, or every spot was ruled out.` });
+        continue;
       }
       const good = goodWindsFor(best.spot, best.pts, cfg);
       recs.push({
         cam, lat: best.spot.lat, lng: best.spot.lng, fit: Math.round(clamp(best.s) * 100), goodWinds: good,
-        text: `~${cfg.shotYd} yds ${Geo.compass(best.b)} of ${cam.name}` + (axis != null ? `, off the ${Geo.compass(axis)}–${Geo.compass(axis + 180)} travel route` : '') +
+        text: `~${best.dist} yds ${Geo.compass(best.b)} of ${cam.name}` + (axis != null ? `, off the ${Geo.compass(axis)}–${Geo.compass(axis + 180)} travel route` : '') +
           `. Good on ${good.length ? good.join(', ') : 'few'} winds; scent stays clear on ~${Math.round(clamp(best.s) * 100)}% of upcoming daylight hours.`,
         sightings: near.length, bucks: new Set(bucks.map((b) => b.buckId).filter(Boolean)).size,
       });
@@ -376,5 +397,5 @@
     return { winds: goodWindsFor(stand, pts, cfg), source: 'computed' };
   }
 
-  window.Engine = { DEFAULTS, enrichSightings, buckPattern, conditionPatterns, planSits, recommendStands, standWinds, period, fmtTime };
+  window.Engine = { spotAllowed, DEFAULTS, enrichSightings, buckPattern, conditionPatterns, planSits, recommendStands, standWinds, period, fmtTime };
 })();
