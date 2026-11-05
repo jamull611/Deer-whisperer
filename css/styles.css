@@ -84,6 +84,8 @@ main { max-width: 1100px; margin: 0 auto; padding: 12px 16px 60px; }
 .pill.chance-good { background: var(--good); color: #fff; border-color: transparent; }
 .pill.chance-possible { background: var(--s2); }
 .pill.chance-outside { background: transparent; color: var(--muted); }
+.pattern { border-top: 1px solid var(--border); padding-top: .4rem; margin-top: .2rem; }
+.pattern .pill { vertical-align: 1px; }
 .why { margin-top: .2rem; } .why summary { cursor: pointer; color: var(--muted); }
 .reasons { margin: .3rem 0 0; padding: 0; list-style: none; font-size: .88rem; }
 .reasons li::before { content: "• "; }

@@ -35,12 +35,12 @@
     const camById = Object.fromEntries(cameras.map((c) => [c.id, c]));
     return photos.filter((p) => p.cameraId && camById[p.cameraId] && p.takenAt && p.kind && p.kind !== 'none').map((p) => {
       const cam = camById[p.cameraId];
-      const w = weather ? weather.at(p.takenAt) : null;
+      const cond = p.wxSnap || (weather ? Patterns.conditionsAt(weather, p.takenAt) : null);
       return {
         ...p, cam,
         heading: Geo.travelHeading(cam.facing, p.travel),
         period: period(p.takenAt, cam.lat, cam.lng),
-        wx: w,
+        wx: cond, cond,
         moon: Astro.moonIllumination(new Date(p.takenAt)),
       };
     });
@@ -149,6 +149,7 @@
       windDir: Geo.circularMean(hrs.map((h) => ({ deg: h.windDir, w: Math.max(h.wind, 0.5) }))).mean,
     } : null;
     const reasons = [];
+    let r_bins = null;
     let bonus = 0;
 
     // --- Activity near this stand ---
@@ -181,18 +182,19 @@
     }
 
     // --- Weather changes ---
+    let sitDT = null, sitDP = null;
     if (wx && weather) {
       const prior = [1, 2, 3].map((k) => weather.hours.filter((h) => h.t >= win.start - k * DAY && h.t <= win.end - k * DAY)).filter((x) => x.length);
       if (prior.length) {
         const pastT = prior.map((x) => avg(x, 'temp')).reduce((a, b) => a + b, 0) / prior.length;
-        const dt = wx.temp - pastT;
+        const dt = wx.temp - pastT; sitDT = dt;
         if (dt <= -10) { bonus += 0.18; reasons.push({ v: 1, t: `Cold snap: ${Math.round(-dt)}°F cooler than the last 3 days` }); }
         else if (dt <= -5) { bonus += 0.08; reasons.push({ v: 1, t: `Cooling trend (${Math.round(dt)}°F)` }); }
         else if (dt >= 10) { bonus -= 0.1; reasons.push({ v: -1, t: `Warm spell (+${Math.round(dt)}°F) — expect less daylight movement` }); }
       }
       const p12 = weather.at(win.start - 12 * HOUR);
       if (p12 && p12.pressure && wx.pressure) {
-        const dp = wx.pressure - p12.pressure;
+        const dp = wx.pressure - p12.pressure; sitDP = dp;
         if (dp >= 0.06) { bonus += 0.08; reasons.push({ v: 1, t: `Rising pressure (${wx.pressure.toFixed(2)} inHg) — post-front movement` }); }
         else if (dp <= -0.08) { bonus += 0.06; reasons.push({ v: 1, t: 'Falling pressure — deer often feed ahead of a front' }); }
       }
@@ -215,16 +217,21 @@
     const rut = rutBonus(mid, cfg);
     if (rut) { bonus += rut.b; reasons.push({ v: 1, t: rut.txt }); }
 
-    // --- This buck's own wind history ---
-    if (targetBuckId && ctx.patterns && ctx.patterns[targetBuckId] && wx) {
-      const tw = ctx.patterns[targetBuckId].topWinds || [];
-      if (tw.includes(Geo.compass8(wx.windDir))) { bonus += 0.08; reasons.push({ v: 1, t: `He's shown up in daylight on ${Geo.compass8(wx.windDir)} winds before` }); }
+    // --- Learned weather pattern (this buck, or this stand's deer) ---
+    const pat = ctx.cond && (targetBuckId ? ctx.cond.bucks[targetBuckId] : ctx.cond.stands[stand.id]);
+    r_bins = wx ? Patterns.sitBins(wx, sitDT, sitDP, ill.fraction) : null;
+    if (pat && wx) {
+      const m = Patterns.matchSit(pat, r_bins);
+      bonus += m.adj;
+      const who = targetBuckId ? 'his' : "this stand's";
+      if (m.hits.length) reasons.push({ v: 1, t: `Matches ${who} weather pattern: ${m.hits.map((f) => f.short).join(', ')} (${pat.tier} pattern, ${pat.n} daylight visits)` });
+      if (m.misses.length) reasons.push({ v: -1, t: `${targetBuckId ? 'He rarely moves' : 'Deer here rarely move'} in ${m.misses.map((f) => f.short).join(', ')}` });
     }
 
     // Deer activity and conditions set the ceiling; the wind multiplies it (a wrong wind ruins any sit).
     let score = (0.45 * act + 0.25 + clamp(bonus, -0.3, 0.25)) * (0.45 + 0.55 * windScore * speedF);
     if (windScore < 0.35) score = Math.min(score, 0.33);
-    return { stand, day: dayMs, which, start: win.start, end: win.end, score: Math.round(clamp(score) * 100), windScore, act, reasons, wx, moon: ill };
+    return { bins: r_bins, stand, day: dayMs, which, start: win.start, end: win.end, score: Math.round(clamp(score) * 100), windScore, act, reasons, wx, moon: ill };
   }
 
   function fmtTime(d) { return new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
@@ -260,8 +267,11 @@
         const w = windSafety(r.stand, r.wx.windDir, threatPoints(r.stand, sightings, cfg, b.id), cfg);
         chance *= 0.45 + 0.55 * w;
         if (w < 0.4) why.push('wind blows toward his travel');
-        const tw = (patterns && patterns[b.id] && patterns[b.id].topWinds) || [];
-        if (tw.includes(Geo.compass8(r.wx.windDir))) { chance = Math.min(1, chance * 1.15); why.push(`has shown on ${Geo.compass8(r.wx.windDir)} winds`); }
+        const bp = ctx.cond && ctx.cond.bucks[b.id];
+        const m = bp && r.bins ? Patterns.matchSit(bp, r.bins) : null;
+        if (m && m.adj) { chance = Math.max(0, Math.min(1, chance * (1 + 2 * m.adj))); }
+        if (m && m.hits.length) why.push(`weather fits his pattern (${m.hits.map((f) => f.short).join(', ')})`);
+        if (m && m.misses.length) why.push(`he rarely moves in ${m.misses.map((f) => f.short).join(', ')}`);
       }
       const level = chance >= 0.5 ? "good" : chance >= 0.2 ? "possible" : chance >= 0.05 ? "outside" : null;
       if (level) out.push({ buck: b, chance, level, why: why.join('; ') });
@@ -269,9 +279,27 @@
     return out.sort((a, b) => b.chance - a.chance);
   }
 
-  function planSits({ stands, sightings, weather, settings, targetBuckId, patterns, bucks = [], now = Date.now(), days = 16 }) {
+  /** Learned weather patterns for every buck and every stand. */
+  function conditionPatterns({ bucks, stands, sightings, weather, settings, center, now = Date.now() }) {
     const cfg = { ...DEFAULTS, ...(settings || {}) };
-    const ctx = { sightings, weather, cfg, targetBuckId, patterns, now };
+    const out = { bucks: {}, stands: {} };
+    const day = sightings.filter((s) => s.period !== 'night' && s.cond);
+    if (!weather || !center) return out;
+    const first = weather.hours.length ? weather.hours[0].t + 3 * DAY : now;
+    const oldest = day.reduce((m, s) => Math.min(m, s.takenAt), now);
+    const base = Patterns.baseline(weather, center.lat, center.lng, Math.max(first, oldest - 7 * DAY), Math.min(now, weather.hours[weather.hours.length - 1].t));
+    out.baseline = base;
+    for (const b of bucks) out.bucks[b.id] = Patterns.analyse(Patterns.visits(day.filter((s) => s.buckId === b.id), (s) => s.buckId), base);
+    for (const st of stands) {
+      const near = day.filter((s) => Geo.distanceYd(st, s.cam) <= cfg.radiusYd);
+      out.stands[st.id] = Patterns.analyse(Patterns.visits(near, (s) => s.buckId || 'anon-' + s.kind), base);
+    }
+    return out;
+  }
+
+  function planSits({ stands, sightings, weather, settings, targetBuckId, patterns, cond, bucks = [], now = Date.now(), days = 16 }) {
+    const cfg = { ...DEFAULTS, ...(settings || {}) };
+    const ctx = { sightings, weather, cfg, targetBuckId, patterns, cond, now };
     const lastHour = weather && weather.hours.length ? weather.hours[weather.hours.length - 1].t : now + 7 * DAY;
     const out = [];
     for (let d = 0; d < days; d++) {
@@ -338,5 +366,5 @@
     return { winds: goodWindsFor(stand, pts, cfg), source: 'computed' };
   }
 
-  window.Engine = { DEFAULTS, enrichSightings, buckPattern, planSits, recommendStands, standWinds, period, fmtTime };
+  window.Engine = { DEFAULTS, enrichSightings, buckPattern, conditionPatterns, planSits, recommendStands, standWinds, period, fmtTime };
 })();

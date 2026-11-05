@@ -40,8 +40,42 @@
   async function ensureWeather(force) {
     const c = center();
     if (!c) { S.weather = null; return; }
-    try { S.weather = await Weather.load(c.lat, c.lng, { force }); S.weatherErr = null; }
-    catch (e) { S.weatherErr = e.message; S.weather = null; }
+    try { S.weather = Weather.merge(S.archive, await Weather.load(c.lat, c.lng, { force })); S.weatherErr = null; }
+    catch (e) { S.weatherErr = e.message; S.weather = S.archive || null; }
+    await backfillWeather();
+  }
+
+  /** Save the conditions at each photo's time onto the photo, fetching older history when needed. */
+  async function backfillWeather() {
+    const c = center(), DAY = 864e5;
+    if (!c || !S.weather || !S.weather.hours.length) return;
+    const start = S.weather.hours[0].t;
+    const old = S.photos.filter((p) => p.takenAt && !p.wxSnap && p.takenAt < start + 3 * DAY);
+    if (old.length && !S.archiveTried) {
+      S.archiveTried = true;
+      const from = Math.max(Math.min(...old.map((p) => p.takenAt)) - 4 * DAY, Date.now() - 730 * DAY);
+      if (from < start) {
+        try { S.archive = await Weather.loadArchive(c.lat, c.lng, from, start); S.weather = Weather.merge(S.archive, S.weather); }
+        catch (e) { console.warn('Weather history unavailable', e); }
+      }
+    }
+    for (const p of S.photos) {
+      if (p.wxSnap || !p.takenAt || p.takenAt > Date.now()) continue;
+      const cond = Patterns.conditionsAt(S.weather, p.takenAt);
+      if (cond && cond.dTemp != null && cond.dPress != null) { p.wxSnap = cond; await Store.put('photos', p); }
+    }
+  }
+  const condPatterns = (sts) => Engine.conditionPatterns({ bucks: S.bucks, stands: S.stands, sightings: sts, weather: S.weather, settings: S.settings, center: center() });
+
+  function patternHTML(cp, who) {
+    if (!cp) return '';
+    if (cp.tier === 'none') return `<div class="pattern small muted"><b>Weather pattern:</b> not enough data yet. ${cp.n} of ${Patterns.MIN_EARLY} daylight visits needed (all photos of a deer from the same morning, midday or evening count as one visit).</div>`;
+    const head = cp.tier === 'established'
+      ? `<b>Weather pattern</b> <span class="pill good">Established</span> ${cp.n} daylight visits.`
+      : `<b>Weather pattern</b> <span class="pill">Early</span> ${cp.n} daylight visits, so only very strong signals are shown. Fuller analysis at ${Patterns.MIN_ESTABLISHED}.`;
+    if (!cp.findings.length) return `<div class="pattern small">${head}<br>No clear weather preference yet: ${who} moving in all kinds of conditions.</div>`;
+    const combo = cp.combo ? `<li class="p"><b>Best combination:</b> ${esc(cp.combo.f1.short)} + ${esc(cp.combo.f2.short)}: ${cp.combo.k} of ${cp.combo.n} visits (${Math.round(cp.combo.share * 100)}%) vs about ${Math.round(cp.combo.base * 100)}% of daylight hours.</li>` : '';
+    return `<div class="pattern small">${head}<ul class="reasons">${cp.findings.map((f) => `<li class="${f.dir === 'more' ? 'p' : 'n'}">${esc(Patterns.describe(f))}</li>`).join('')}${combo}</ul></div>`;
   }
 
   // ---------- tabs ----------
@@ -352,9 +386,9 @@
   function renderBucks() {
     const box = $('#buck-list'); box.innerHTML = '';
     if (!S.bucks.length) { box.innerHTML = '<div class="empty">No bucks named yet. Tag a buck on a photo (or use AI ID) and choose “＋ New buck”.</div>'; return; }
-    const sts = sightings();
+    const sts = sightings(), cps = condPatterns(sts);
     for (const b of S.bucks) {
-      const pat = Engine.buckPattern(b, sts);
+      const pat = Engine.buckPattern(b, sts), cp = cps.bucks[b.id];
       const ref = S.photos.find((p) => p.id === b.refPhotoId) || S.photos.find((p) => p.buckId === b.id);
       const mine = S.photos.filter((p) => p.buckId === b.id);
       const el = document.createElement('div'); el.className = 'buck';
@@ -364,6 +398,7 @@
           <label>Points / age class<input data-f="points" value="${esc(b.points)}" placeholder="e.g. 10pt, 4.5 yrs"></label>
           <label>Identifying features<textarea data-f="desc" placeholder="Kicker off left G2, split brow…">${esc(b.description)}</textarea></label>
           <div class="small">${esc(pat.summary)}</div>
+          ${patternHTML(cp, "he's")}
           ${mine.length > 1 ? `<label>Reference photo (used by AI)<select data-f="ref">${mine.map((p) => `<option value="${p.id}" ${p.id === (ref && ref.id) ? 'selected' : ''}>${fmtDT(p.takenAt)} · ${esc(camName(p.cameraId))}</option>`).join('')}</select></label>` : ''}
           <div class="row"><button data-a="plan">Plan a hunt for ${esc(b.name)}</button><button class="ghost" data-a="del">Delete</button></div>
         </div>`;
@@ -424,7 +459,8 @@
 
     const sts = sightings();
     const patterns = Object.fromEntries(S.bucks.map((b) => [b.id, Engine.buckPattern(b, sts)]));
-    const sits = S.stands.length ? Engine.planSits({ stands: S.stands, sightings: sts, weather: S.weather, settings: S.settings, targetBuckId: S.target || null, patterns, bucks: S.bucks }) : [];
+    const cond = condPatterns(sts);
+    const sits = S.stands.length ? Engine.planSits({ stands: S.stands, sightings: sts, weather: S.weather, settings: S.settings, targetBuckId: S.target || null, patterns, cond, bucks: S.bucks }) : [];
 
     // best list
     const perStand = {};
@@ -432,7 +468,7 @@
     const bl = $('#plan-best');
     bl.innerHTML = best.length ? '' : `<div class="empty">${S.stands.length ? 'No forecast available yet.' : 'Add at least one stand on the Map tab.'}</div>`;
     best.forEach((r) => { const d = document.createElement('div'); d.className = 'best'; d.style.borderLeftColor = r.score >= 72 ? 'var(--good)' : r.score >= 55 ? 'var(--ok)' : 'var(--bad)'; d.innerHTML = sitDetail(r); bl.appendChild(d); });
-    if (S.target && patterns[S.target]) bl.insertAdjacentHTML('afterbegin', `<div class="card small"><b>${esc(buckName(S.target))}:</b> ${esc(patterns[S.target].summary)}</div>`);
+    if (S.target && patterns[S.target]) bl.insertAdjacentHTML('afterbegin', `<div class="card small"><b>${esc(buckName(S.target))}:</b> ${esc(patterns[S.target].summary)}${patternHTML(cond.bucks[S.target], "he's")}</div>`);
 
     // matrix
     const days = [...new Set(sits.map((r) => r.day))].sort((a, b) => a - b);

@@ -40,7 +40,9 @@ The model is rule-based so you can see *why* it says what it says:
 - **Rut:** a boost around the rut peak date you set in Settings.
 - **Target buck:** an extra boost if the forecast wind matches winds he has already shown up on in daylight.
 
-Weather comes from [Open-Meteo](https://open-meteo.com) (free, no key): 92 days of history, used to record the conditions at the time of each sighting, plus a 16-day forecast.
+- **Learned weather patterns:** every photo stores the conditions at that hour (wind, temperature change against the 3-day average, 12-hour pressure trend, rain, wind speed, moon). Each buck's and each stand's daylight visits are compared with how often those conditions occurred across all daylight hours. A condition only counts when an exact binomial test (corrected for the ~17 conditions tested) says it is far more, or less, common than chance would explain. Under 5 daylight visits: nothing is used. 5–11 visits: only very strong signals. 12+ visits: fuller analysis, including the best two-condition combination. All photos of a deer from one morning, midday or evening count as one visit. In testing on random data this flags a false pattern in roughly 1–5% of cases.
+
+Weather comes from [Open-Meteo](https://open-meteo.com) (free, no key): a 16-day forecast plus 92 days of history, and the archive API for photos older than that (up to 2 years).
 
 ## Run it
 
@@ -67,6 +69,7 @@ js/geo.js         distances, bearings, travel-heading math
 js/astro.js       sunrise/sunset, moon phase, solunar periods
 js/weather.js     Open-Meteo client (cached, works offline with the last forecast)
 js/engine.js      buck patterns, sit scoring, stand recommendations
+js/patterns.js    learned weather patterns (baseline, binomial tests, sit matching)
 js/ai.js          optional Claude vision buck ID
 js/store.js       IndexedDB storage + backup/restore
 js/demo.js        demo property generator
