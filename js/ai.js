@@ -39,7 +39,7 @@
             est_points: { type: 'integer', description: 'estimated total antler points, 0 if not a buck or not visible' },
             antler_description: { type: 'string' },
             distinguishing_features: { type: 'string' },
-            suggested_name: { type: 'string', description: 'a short, fun hunting-camp nickname if this is a new buck, else ""' },
+            suggested_name: { type: 'string', description: 'for a new buck, a distinctive 1-3 word hunting-camp name drawn from his rack, body or habits; else ""' },
             movement_in_frame: { type: 'string', enum: ['L2R', 'R2L', 'toward', 'away', 'stationary', 'unknown'] },
           },
         },
@@ -56,7 +56,10 @@ For each photo, identify every deer. For bucks, compare carefully against the re
 Only report a match when the antler/body evidence actually supports it; otherwise use match_buck_id "none" and propose a suggested_name.
 Antlers drop in winter and regrow each year, so between seasons rely on body features and say so in notes.
 movement_in_frame is the direction the deer is walking as seen in the image (L2R = walking from the left side of the image toward the right).
-Read the camera's info strip for date/time and temperature if present.`;
+Read the camera's info strip for date/time and temperature if present.
+Naming new bucks: give a distinctive, memorable name of one to three words that comes from what sets THIS buck apart — his rack (shape, mass, a sticker, drop tine, split brow, kicker, lopsided side), body (color, scars, ear notch, giant neck) or habits (night-only, the terrain he uses).
+Style examples: Crowbar (heavy beams), Pitchfork (tall straight tines), Switchblade (one long sticker), Chandelier (drop tines), Notch (torn ear), Moonshiner (nocturnal), Gunsmoke, Copperhead, Tripwire, Ironside.
+Never use generic or overused names (Big Ten, Big Eight, Mr. Big, Tank, Stud, Old Mossy, Kicker, Wide Eight, Brutus, Bullwinkle, Bambi, Monster, a bare number) or any name already in the roster.`;
 
   async function identify({ apiKey, model, photoBlob, knownBucks }) {
     if (!apiKey) throw new Error('Add your Anthropic API key in Settings to use AI identification.');

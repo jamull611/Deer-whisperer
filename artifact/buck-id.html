@@ -51,6 +51,10 @@
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .check { display: flex; align-items: center; gap: 6px; color: var(--fg); font-size: .85rem; }
   .check input { width: auto; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: var(--surface-2); color: var(--fg); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: .82rem; }
+  .chip.on { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+  .chip.more { background: transparent; border-style: dashed; }
   .empty { border: 1px dashed var(--line); border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); }
   .roster { display: grid; gap: 10px; }
   .buck { display: grid; grid-template-columns: 96px 1fr; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
@@ -288,7 +292,7 @@
     const bits = [`${r.animals.length > 1 ? r.animals.length + ' deer. ' : ''}${a.kind}${a.est_points ? `, about ${a.est_points} points` : ''}.`];
     if (m) bits.push(`Looks like ${m.name} (${a.match_confidence} confidence).`);
     else if (bm) bits.push(`Same buck as photo ${num(bm)} (${a.match_confidence} confidence).`);
-    else if (a.kind === 'buck') bits.push(`No match in your roster${a.suggested_name ? `; suggested name “${a.suggested_name}”` : ''}.`);
+    else if (a.kind === 'buck') bits.push('No match in your roster yet.');
     if (a.antler_description) bits.push(a.antler_description);
     if (a.distinguishing_features) bits.push(a.distinguishing_features);
     return bits.join(' ');
@@ -298,7 +302,7 @@
     const el = document.getElementById('card-' + p.id); if (!el) return;
     el.className = 'card ' + (p.confirmed ? 'ok' : p.state === 'done' ? 'needs' : '');
     const stateTxt = { wait: 'Waiting', run: 'Claude is looking…', done: p.confirmed ? 'Checked ✓' : 'Check this result', err: 'Error: ' + (p.err || '') }[p.state];
-    const newName = p.newName ?? (p.ai && p.ai.animals && (p.ai.animals.find((x) => x.kind === 'buck') || {}).suggested_name) ?? '';
+    const newName = p.newName ?? '';
     el.innerHTML = `<img alt="Trail camera photo ${esc(p.fileName)}" src="${p.thumb}">
       <div class="body">
         <div class="meta">Photo ${num(p)} · ${esc(p.fileName)} · ${fmt(p.takenAt)}${p.exif ? '' : ' (file date)'}</div>
@@ -313,6 +317,10 @@
         <div class="bar" ${p.kind === 'buck' && p.buckId === '__new' ? '' : 'hidden'}>
           <input id="n-${p.id}" aria-label="New buck name" placeholder="Name this buck" value="${esc(newName)}" style="flex:1">
           <button class="small" data-a="addbuck">Add to roster</button>
+        </div>
+        <div class="chips" ${p.kind === 'buck' && p.buckId === '__new' ? '' : 'hidden'}>
+          ${(p.nameIdeas || []).map((n, i) => `<button class="chip ${n === (p.newName || '').trim() ? 'on' : ''}" data-name="${i}">${esc(n)}</button>`).join('')}
+          <button class="chip more" data-a="names" ${sample ? '' : 'hidden'}>${p.namesBusy ? 'Thinking…' : (p.nameIdeas || []).length ? '🎲 More names' : '🎲 Name ideas'}</button>
         </div>
         <label class="check" for="r-${p.id}" ${p.kind === 'buck' && roster.some((b) => b.id === p.buckId) ? '' : 'hidden'}><input type="checkbox" id="r-${p.id}"> Use as this buck’s reference photo</label>
         <label for="w-${p.id}">Date and time<input type="datetime-local" id="w-${p.id}" value="${toLocalInput(p.takenAt)}"></label>
@@ -346,6 +354,8 @@
       const b = roster.find((x) => x.id === p.buckId); if (!b) return;
       b.refThumb = await scaled(p.file, 420, 0.72); await saveBuck(b); renderRoster(); toast(`Reference photo updated for ${b.name}`);
     };
+    el.querySelectorAll('[data-name]').forEach((btn) => (btn.onclick = () => { p.newName = p.nameIdeas[Number(btn.dataset.name)]; renderCard(p); photos.forEach((q) => q !== p && renderCard(q)); }));
+    $('[data-a=names]', el).onclick = () => moreNames(p);
     const ok = $('[data-a=ok]', el); if (ok) ok.onclick = touch;
     $('[data-a=again]', el).onclick = async () => { ctl = new AbortController(); await identify(p, ctl.signal); updateButtons(); };
     $('[data-a=rm]', el).onclick = () => {
@@ -363,6 +373,13 @@
   }
 
   // ---------- Claude ----------
+  const NAMING = [
+    'Naming new bucks: give each a distinctive, memorable hunting-camp name of one to three words that comes from what sets THIS buck apart.',
+    'Draw on his rack (shape, mass, a sticker, drop tine, split brow, kicker, lopsided side, tall or wide frame), body (color, scars, ear notch, swayback, giant neck), and habits (night-only, the camera or terrain he uses, how he carries himself).',
+    'Good examples of the style: Crowbar (heavy beams), Pitchfork (tall straight tines), Switchblade (one long sticker), Chandelier (drop tines), Bent Fork, Notch (torn ear), Smokestack, Moonshiner (nocturnal), Ghost Ridge, Hatchet, Deacon, Gunsmoke, Copperhead, Tripwire, Ironside.',
+    'Never use generic or overused names: Big Ten, Big Eight, Mr. Big, Big Boy, Big Buck, Tank, Stud, Old Mossy, Kicker, Wide Eight, Brutus, Bullwinkle, Bambi, Rudolph, Monster, or a bare number.',
+  ];
+  const takenNames = () => [...roster.map((b) => b.name), ...photos.map((q) => (q.newName || '').trim())].filter(Boolean);
   function buildPrompt(refs, nImages) {
     const lines = [
       'You are an expert whitetail deer biologist helping a hunter catalogue trail-camera photos.',
@@ -377,15 +394,38 @@
       `The LAST image (image ${nImages}) is the new trail-camera photo to identify.`,
       '',
       'Identify every deer in the new photo. For bucks, compare carefully against the reference bucks: main-frame shape, tine count and length, brow tines, spread, kickers, stickers, drop tines, body size, scars and ear notches.',
-      'Only report a match when the antler or body evidence supports it; otherwise set match_buck_id to "none" and propose a short hunting-camp nickname in suggested_name.',
+      'Only report a match when the antler or body evidence supports it; otherwise set match_buck_id to "none" and give three different name ideas in name_ideas (best first).',
+      ...NAMING,
+      takenNames().length ? `Names already taken (do not reuse them or start with the same word): ${[...new Set(takenNames())].join(', ')}.` : '',
       'Trail cameras often catch the same buck many times, so look hard for a match with the earlier photos from this upload before calling a buck new.',
       'movement_in_frame is the direction the deer walks as seen in the image (L2R = from the left side of the image toward the right).',
       'Read the date, time, temperature and camera name or ID from the camera info strip if there is one.',
       '',
       'Reply with only one JSON object in exactly this shape:',
-      '{"deer_present": true, "animals": [{"kind": "buck|doe|fawn|unknown_deer|other_animal", "match_buck_id": "<id or none>", "match_confidence": "high|medium|low|none", "est_points": 8, "antler_description": "...", "distinguishing_features": "...", "suggested_name": "...", "movement_in_frame": "L2R|R2L|toward|away|stationary|unknown"}], "overlay_datetime": "YYYY-MM-DDTHH:MM or empty string", "overlay_temperature_f": 41, "camera_label": "camera name or ID printed on the photo, or empty string", "notes": "..."}'
+      '{"deer_present": true, "animals": [{"kind": "buck|doe|fawn|unknown_deer|other_animal", "match_buck_id": "<id or none>", "match_confidence": "high|medium|low|none", "est_points": 8, "antler_description": "...", "distinguishing_features": "...", "name_ideas": ["...", "...", "..."], "movement_in_frame": "L2R|R2L|toward|away|stationary|unknown"}], "overlay_datetime": "YYYY-MM-DDTHH:MM or empty string", "overlay_temperature_f": 41, "camera_label": "camera name or ID printed on the photo, or empty string", "notes": "..."}'
     );
     return lines.join('\n');
+  }
+
+  async function moreNames(p) {
+    if (!sample || p.namesBusy) return;
+    const a = p.ai && p.ai.animals && p.ai.animals.find((x) => x.kind === 'buck');
+    const traits = a ? [a.est_points ? `about ${a.est_points} points` : '', a.antler_description, a.distinguishing_features].filter(Boolean).join('. ') : '';
+    p.namesBusy = true; renderCard(p);
+    try {
+      const ideas = await sample.json([
+        'Suggest 6 names for a whitetail buck seen on a trail camera.',
+        traits ? `What he looks like: ${traits}` : 'No description is available; base the names on a mature whitetail buck.',
+        p.cameraName ? `He was photographed at the camera "${p.cameraName}" at ${new Date(p.takenAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.` : '',
+        ...NAMING,
+        `Do not reuse any of these: ${[...new Set([...takenNames(), ...(p.nameIdeas || [])])].join(', ') || 'none'}.`,
+        'Make the six names varied in style. Reply with only a JSON array of 6 strings.',
+      ].filter(Boolean).join('\n'), { modelTier: 'quick', cache: false });
+      const fresh = (Array.isArray(ideas) ? ideas : []).map((x) => String(x).trim()).filter((x) => x && x.length <= 30);
+      p.nameIdeas = [...new Set([...(p.nameIdeas || []), ...fresh])].slice(-9);
+      if (!fresh.length) toast('No names came back. Try again.');
+    } catch (e) { if (e && e.code !== 'cancelled') toast(e && e.code === 'rate_limited' ? 'Claude usage limit reached. Try again later.' : 'Could not get names right now.'); }
+    p.namesBusy = false; renderCard(p);
   }
 
   async function identify(p, signal) {
@@ -420,7 +460,7 @@
           const bm = String(a.match_buck_id || '').startsWith('batch-') && byId(a.match_buck_id.slice(6));
           if (m && sure) p.buckId = m.id;
           else if (bm && sure) { const r = root(bm); p.buckId = roster.some((b) => b.id === r.buckId) ? r.buckId : 'same:' + r.id; }
-          else { p.buckId = '__new'; p.newName = a.suggested_name || ''; }
+          else { p.buckId = '__new'; p.nameIdeas = (Array.isArray(a.name_ideas) ? a.name_ideas : [a.suggested_name]).map((x) => String(x || '').trim()).filter(Boolean).slice(0, 6); p.newName = p.nameIdeas[0] || ''; }
         }
       }
       const cm = matchCamera(r.camera_label);

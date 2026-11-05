@@ -36,9 +36,9 @@
       { id: id(), name: 'Saddle Climber', ...at(35, 360), type: 'Climber', goodWinds: [], notes: '' },
     ];
     const bucks = [
-      { id: id(), name: 'Kicker', points: '11pt, ~4.5 yrs', description: 'Tall 10 with a kicker off the right G2, heavy bases', created: Date.now() },
-      { id: id(), name: 'Wide Eight', points: '8pt, ~3.5 yrs', description: 'Very wide, short tines, broken left brow', created: Date.now() },
-      { id: id(), name: 'Split Brow', points: '9pt', description: 'Split brow tine on the left side, dark rack', created: Date.now() },
+      { id: id(), name: 'Switchblade', points: '11pt, ~4.5 yrs', description: 'Tall 10 with a kicker off the right G2, heavy bases', created: Date.now() },
+      { id: id(), name: 'Wingspan', points: '8pt, ~3.5 yrs', description: 'Very wide, short tines, broken left brow', created: Date.now() },
+      { id: id(), name: 'Forktongue', points: '9pt', description: 'Split brow tine on the left side, dark rack', created: Date.now() },
     ];
     const [cr, rs, cp, fp] = cams, [kick, wide, split] = bucks;
     // [camera, buckOrKind, travel, hourOfDay] patterns
