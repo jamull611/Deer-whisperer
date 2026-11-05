@@ -17,6 +17,7 @@ No server, no account, no build step. Your data stays on your device.
 | **Plan** | Scores every morning and evening sit, at every stand, for the next ~16 days (0–100), with the reasons. Pick a buck to plan just for him. |
 | **Suggested stands** | For cameras with deer activity and no stand within 150 yds, it suggests a spot at your shooting distance, downwind of the travel route, and lists the winds it works on. |
 | **Property lines** | Draw your boundary on the map or import a KML/GeoJSON (onX, HuntStand, county GIS). Mark off-limits areas. Suggested stands stay inside your property, 20+ yds from the line; "Can't hunt there" skips a spot and finds the next best. |
+| **Satellite check** | Reads the satellite image around a camera to tell tree cover from open ground (calibrated per area). A suggested stand is thrown out if more than ~10 yds of trees sit between it and the camera (e.g. 30+ yds back in the woods from a road), spots just inside the tree line get a bonus, and open spots are flagged as needing a ground blind. |
 | **AI ID (optional)** | With your own Anthropic API key, Claude looks at each photo, matches bucks against your reference photos, estimates points, reads the date/temperature strip, and guesses travel direction. You confirm or correct it. |
 
 ## Buck ID inside Claude (no API credits)
@@ -71,6 +72,7 @@ js/astro.js       sunrise/sunset, moon phase, solunar periods
 js/weather.js     Open-Meteo client (cached, works offline with the last forecast)
 js/engine.js      buck patterns, sit scoring, stand recommendations
 js/patterns.js    learned weather patterns (baseline, binomial tests, sit matching)
+js/terrain.js     satellite tree-cover / open-ground check for suggested stands
 js/ai.js          optional Claude vision buck ID
 js/store.js       IndexedDB storage + backup/restore
 js/demo.js        demo property generator

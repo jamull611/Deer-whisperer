@@ -340,7 +340,7 @@
     return true;
   }
 
-  function recommendStands({ cameras, stands, sightings, weather, settings, areas = [], rejected = [], now = Date.now() }) {
+  function recommendStands({ cameras, stands, sightings, weather, settings, areas = [], rejected = [], terrain = {}, now = Date.now() }) {
     const cfg = config(settings);
     const upcoming = weather ? weather.hours.filter((h) => h.t > now && h.t < now + 10 * DAY && period(h.t, cameras[0]?.lat || 0, cameras[0]?.lng || 0) !== 'night') : [];
     const recs = [];
@@ -354,23 +354,44 @@
       const hs = near.filter((s) => s.heading != null);
       const ax = Geo.circularMean(hs.map((s) => ({ deg: (s.heading * 2) % 360 })));
       const axis = ax.mean != null && ax.strength > 0.3 ? ax.mean / 2 : null;
-      let best = null;
       // Try 16 directions at three distances; only spots you can actually hunt are considered.
       const dists = [cfg.shotYd, Math.round(cfg.shotYd * 1.6), Math.round(cfg.shotYd * 2.4)];
-      for (const [di, dist] of dists.entries()) for (let b = 0; b < 360; b += 22.5) {
-        const spot = { ...Geo.offset(cam, b, dist), goodWinds: null };
-        if (!spotAllowed(spot, areas, rejected)) continue;
-        const pts = threatPoints(spot, near, { ...cfg, radiusYd: cfg.radiusYd + cfg.shotYd }, null);
-        if (axis != null) { // the trail itself, both directions
-          pts.push({ p: Geo.offset(cam, axis, 70), w: 0.7 }, { p: Geo.offset(cam, axis + 180, 70), w: 0.7 });
+      const tr = terrain[cam.id] && terrain[cam.id].ok ? terrain[cam.id] : null;
+      let terrainRejected = 0;
+      const search = (useTerrain) => {
+        let best = null;
+        for (const [di, dist] of dists.entries()) for (let b = 0; b < 360; b += 22.5) {
+          const spot = { ...Geo.offset(cam, b, dist), goodWinds: null };
+          if (!spotAllowed(spot, areas, rejected)) continue;
+          // Satellite check: no stand buried in the woods with trees between it and where the deer pass.
+          let tnote = null, tadj = 0;
+          if (useTerrain) {
+            const sl = Terrain.sightline(tr, spot, cam);
+            if (sl.longestTreeRun > 10) { terrainRejected++; continue; }
+            tadj -= 0.015 * sl.longestTreeRun;
+            if (sl.standInTrees === false) { tadj -= 0.12; tnote = 'in the open on the satellite image, so it needs a ground blind or a lone tree'; }
+            else if (sl.standInTrees && sl.edgeYd != null && sl.edgeYd <= 10) { tadj += 0.08; tnote = 'just inside the tree line with an open shot to where the deer pass'; }
+            else if (sl.standInTrees) tnote = 'in the trees with no big block of cover between you and the camera';
+          }
+          const pts = threatPoints(spot, near, { ...cfg, radiusYd: cfg.radiusYd + cfg.shotYd }, null);
+          if (axis != null) { // the trail itself, both directions
+            pts.push({ p: Geo.offset(cam, axis, 70), w: 0.7 }, { p: Geo.offset(cam, axis + 180, 70), w: 0.7 });
+          }
+          const wind = upcoming.length
+            ? upcoming.reduce((a, h) => a + windSafety(spot, h.windDir, pts, cfg), 0) / upcoming.length
+            : WIND8.reduce((a, k, i) => a + windSafety(spot, i * 45, pts, cfg), 0) / 8;
+          let s = wind + tadj;
+          // prefer spots off the trail (perpendicular) for a broadside shot
+          if (axis != null) s -= 0.15 * Math.max(0, 1 - Math.min(Geo.angDiff(b, axis), Geo.angDiff(b, axis + 180)) / 90);
+          s -= 0.06 * di; // closer to the camera is better when it works
+          if (!best || s > best.s) best = { s, wind, b, spot, pts, dist, tnote };
         }
-        let s = 0;
-        if (upcoming.length) s = upcoming.reduce((a, h) => a + windSafety(spot, h.windDir, pts, cfg), 0) / upcoming.length;
-        else s = WIND8.reduce((a, k, i) => a + windSafety(spot, i * 45, pts, cfg), 0) / 8;
-        // prefer spots off the trail (perpendicular) for a broadside shot
-        if (axis != null) s -= 0.15 * Math.max(0, 1 - Math.min(Geo.angDiff(b, axis), Geo.angDiff(b, axis + 180)) / 90);
-        s -= 0.06 * di; // closer to the camera is better when it works
-        if (!best || s > best.s) best = { s, b, spot, pts, dist };
+        return best;
+      };
+      let best = search(!!tr), terrainNote = '';
+      if (!best && tr && terrainRejected) {
+        best = search(false);
+        if (best) terrainNote = ' Could not find a spot with a clear shot on the satellite image, so check this one in person.';
       }
       if (!best) {
         recs.push({ cam, blocked: true, sightings: near.length, bucks: new Set(bucks.map((b) => b.buckId).filter(Boolean)).size,
@@ -379,9 +400,11 @@
       }
       const good = goodWindsFor(best.spot, best.pts, cfg);
       recs.push({
-        cam, lat: best.spot.lat, lng: best.spot.lng, fit: Math.round(clamp(best.s) * 100), goodWinds: good,
+        cam, lat: best.spot.lat, lng: best.spot.lng, fit: Math.round(clamp(best.wind) * 100), goodWinds: good,
         text: `~${best.dist} yds ${Geo.compass(best.b)} of ${cam.name}` + (axis != null ? `, off the ${Geo.compass(axis)}–${Geo.compass(axis + 180)} travel route` : '') +
-          `. Good on ${good.length ? good.join(', ') : 'few'} winds; scent stays clear on ~${Math.round(clamp(best.s) * 100)}% of upcoming daylight hours.`,
+          (best.tnote ? `, ${best.tnote}` : '') +
+          `. Good on ${good.length ? good.join(', ') : 'few'} winds; scent stays clear on ~${Math.round(clamp(best.wind) * 100)}% of upcoming daylight hours.` + terrainNote +
+          (!tr && terrain[cam.id] ? ` (Satellite check skipped: ${terrain[cam.id].why}.)` : ''),
         sightings: near.length, bucks: new Set(bucks.map((b) => b.buckId).filter(Boolean)).size,
       });
     }

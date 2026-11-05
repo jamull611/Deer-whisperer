@@ -1,9 +1,9 @@
 /* Service worker: makes the app installable and lets it open with no signal.
    App files are network-first (so updates arrive right away), falling back to the cached copy offline. */
-const CACHE = 'dw-shell-v3';
+const CACHE = 'dw-shell-v4';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/styles.css',
-  'js/geo.js', 'js/astro.js', 'js/weather.js', 'js/store.js', 'js/engine.js', 'js/patterns.js', 'js/ai.js', 'js/demo.js', 'js/app.js',
+  'js/geo.js', 'js/astro.js', 'js/weather.js', 'js/store.js', 'js/engine.js', 'js/patterns.js', 'js/terrain.js', 'js/ai.js', 'js/demo.js', 'js/app.js',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'vendor/exifr/lite.umd.js',
   'icons/icon-192.png', 'icons/icon-512.png',
 ];

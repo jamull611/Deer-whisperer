@@ -202,7 +202,26 @@
   }
 
   function computeRecs() {
-    S.recs = S.cameras.length ? Engine.recommendStands({ cameras: S.cameras, stands: S.stands, sightings: sightings(), weather: S.weather, settings: S.settings, areas: S.areas, rejected: S.rejected }) : [];
+    S.terrain = S.terrain || {};
+    S.recs = S.cameras.length ? Engine.recommendStands({ cameras: S.cameras, stands: S.stands, sightings: sightings(), weather: S.weather, settings: S.settings, areas: S.areas, rejected: S.rejected, terrain: S.terrain }) : [];
+    loadTerrain();
+  }
+  /** Read the satellite image around cameras that have suggestions (once per camera position). */
+  let terrainBusy = false;
+  async function loadTerrain() {
+    if (terrainBusy || typeof Terrain === 'undefined') return;
+    const need = S.recs.filter((r) => { const t = S.terrain[r.cam.id]; return !t || t.lat !== r.cam.lat || t.lng !== r.cam.lng; }).map((r) => r.cam);
+    if (!need.length) return;
+    terrainBusy = true;
+    try {
+      for (const cam of need) {
+        const smp = await Terrain.samplerFor(cam, Math.round(Number(S.settings.shotYd || 25) * 2.4) + 20);
+        S.terrain[cam.id] = Object.assign(smp, { lat: cam.lat, lng: cam.lng });
+      }
+    } catch (e) { console.warn('Terrain check failed', e); }
+    terrainBusy = false;
+    computeRecs(); renderMarkers();
+    if ($('#tab-plan').classList.contains('active')) renderPlan();
   }
   async function rejectSpot(r) {
     S.rejected.push({ lat: r.lat, lng: r.lng, camId: r.cam.id, at: Date.now() });
