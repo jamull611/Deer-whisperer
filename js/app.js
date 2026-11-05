@@ -421,7 +421,12 @@
   // ---------- plan ----------
   const scClass = (s) => (s == null ? 'sc0' : s < 35 ? 'sc1' : s < 55 ? 'sc2' : s < 72 ? 'sc3' : 'sc4');
   function reasonList(r) { return `<ul class="reasons">${r.reasons.map((x) => `<li class="${x.v > 0 ? 'p' : x.v < 0 ? 'n' : ''}">${esc(x.t)}</li>`).join('')}</ul>`; }
-  function sitTitle(r) { return `${fmtDate(r.day)} ${r.which === 'AM' ? 'morning ☀' : 'evening ☾'} · ${esc(r.stand.name)}`; }
+  function dayLabel(ms) {
+    const d0 = new Date(); d0.setHours(0, 0, 0, 0);
+    const diff = Math.round((ms - d0.getTime()) / 864e5);
+    return diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : fmtDate(ms);
+  }
+  function sitTitle(r) { return `${dayLabel(r.day)} ${r.which === 'AM' ? 'morning ☀' : 'evening ☾'} · ${esc(r.stand.name)}`; }
   function sitDetail(r) {
     const wx = r.wx ? `${Math.round(r.wx.temp)}°F · ${Geo.compass(r.wx.windDir)} ${Math.round(r.wx.wind)} mph (gust ${Math.round(r.wx.gust)}) · ${r.wx.pressure ? r.wx.pressure.toFixed(2) + ' inHg' : ''} · ${r.wx.precip > 0.01 ? r.wx.precip.toFixed(2) + '" rain' : 'dry'}` : 'No forecast';
     return `<div class="head"><span>${sitTitle(r)}</span><span class="score">${r.score}</span></div>
@@ -463,11 +468,18 @@
     const sits = S.stands.length ? Engine.planSits({ stands: S.stands, sightings: sts, weather: S.weather, settings: S.settings, targetBuckId: S.target || null, patterns, cond, bucks: S.bucks }) : [];
 
     // best list
-    const perStand = {};
-    const best = [...sits].sort((a, b) => b.score - a.score).filter((r) => (perStand[r.stand.id] = (perStand[r.stand.id] || 0) + 1) <= 2).slice(0, 5);
+    // Every sit scoring 80+, in date order (morning before evening, then best stand first).
+    const BEST_MIN = 80, SHOW = 8;
+    const byDate = (a, b) => a.day - b.day || (a.which === b.which ? 0 : a.which === 'AM' ? -1 : 1) || b.score - a.score;
+    let best = sits.filter((r) => r.score >= BEST_MIN).sort(byDate), fallback = false;
+    if (!best.length && sits.length) { best = [...sits].sort((a, b) => b.score - a.score).slice(0, 3).sort(byDate); fallback = true; }
     const bl = $('#plan-best');
     bl.innerHTML = best.length ? '' : `<div class="empty">${S.stands.length ? 'No forecast available yet.' : 'Add at least one stand on the Map tab.'}</div>`;
+    if (fallback) bl.innerHTML = `<p class="small muted">No sits score ${BEST_MIN}+ in the forecast. These are the 3 best.</p>`;
+    const extra = S.showAllBest ? 0 : Math.max(0, best.length - SHOW);
+    if (extra) best = best.slice(0, SHOW);
     best.forEach((r) => { const d = document.createElement('div'); d.className = 'best'; d.style.borderLeftColor = r.score >= 72 ? 'var(--good)' : r.score >= 55 ? 'var(--ok)' : 'var(--bad)'; d.innerHTML = sitDetail(r); bl.appendChild(d); });
+    if (extra) { const m = document.createElement('button'); m.className = 'ghost'; m.textContent = `Show ${extra} more`; m.onclick = () => { S.showAllBest = true; renderPlan(); }; bl.appendChild(m); }
     if (S.target && patterns[S.target]) bl.insertAdjacentHTML('afterbegin', `<div class="card small"><b>${esc(buckName(S.target))}:</b> ${esc(patterns[S.target].summary)}${patternHTML(cond.bucks[S.target], "he's")}</div>`);
 
     // matrix
