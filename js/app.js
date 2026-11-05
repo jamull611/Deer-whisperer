@@ -560,7 +560,8 @@
     const st = S.stands.find((s) => s.id === draft.standId);
     if (st) L.marker([st.lat, st.lng], { icon: L.divIcon({ className: '', html: '<div class="mk">🪜</div>', iconSize: [26, 26], iconAnchor: [13, 13] }) }).addTo(huntLayer);
     draft.obs.forEach((o, i) => {
-      const m = L.marker([o.lat, o.lng], { draggable: true, icon: L.divIcon({ className: '', html: `<div class="obs-pin">${i + 1}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) }).addTo(huntLayer);
+      const arrow = o.heading === '' || o.heading == null ? '' : `<span class="obs-arrow" style="transform:rotate(${Number(o.heading)}deg)"></span>`;
+      const m = L.marker([o.lat, o.lng], { draggable: true, icon: L.divIcon({ className: '', html: `<div class="obs-wrap">${arrow}<div class="obs-pin">${i + 1}</div></div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) }).addTo(huntLayer);
       m.on('dragend', () => { const ll = m.getLatLng(); o.lat = ll.lat; o.lng = ll.lng; renderObsList(); });
     });
     renderObsList();
@@ -583,7 +584,7 @@
       el.querySelector('[data-f=kind]').onchange = (e) => { o.kind = e.target.value; if (o.kind !== 'buck') o.buckId = ''; renderObsList(); };
       el.querySelector('[data-f=count]').onchange = (e) => { o.count = Math.max(1, Number(e.target.value) || 1); };
       const bs = el.querySelector('[data-f=buck]'); if (bs) bs.onchange = (e) => { o.buckId = e.target.value; };
-      el.querySelector('[data-f=heading]').onchange = (e) => { o.heading = e.target.value; };
+      el.querySelector('[data-f=heading]').onchange = (e) => { o.heading = e.target.value; renderObs(); };
       el.querySelector('[data-f=time]').onchange = (e) => { const [hh, mm] = e.target.value.split(':').map(Number); const d = new Date(draft.day); d.setHours(hh, mm, 0, 0); o.time = d.getTime(); };
       el.querySelector('[data-a=rm]').onclick = () => { draft.obs.splice(i, 1); renderObs(); };
       box.appendChild(el);

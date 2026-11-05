@@ -98,6 +98,11 @@ main { max-width: 1100px; margin: 0 auto; padding: 12px 16px 60px; }
 .hunt-list { display: grid; gap: .6rem; margin-top: .6rem; }
 .hunt { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .6rem .8rem; }
 .hunt .head { display: flex; justify-content: space-between; gap: .5rem; font-weight: 600; }
+.obs-wrap { position: relative; width: 22px; height: 22px; }
+.obs-wrap .obs-pin { position: relative; z-index: 1; }
+.obs-arrow { position: absolute; left: 11px; top: 11px; width: 0; height: 0; transform-origin: 0 0; pointer-events: none; }
+.obs-arrow::before { content: ""; position: absolute; left: -2px; top: -34px; width: 4px; height: 24px; background: #ffd43b; border-radius: 2px; box-shadow: 0 0 2px rgba(0,0,0,.7); }
+.obs-arrow::after { content: ""; position: absolute; left: -8px; top: -46px; border: 8px solid transparent; border-bottom: 14px solid #ffd43b; filter: drop-shadow(0 0 1px rgba(0,0,0,.8)); }
 .obs-pin { background: var(--accent); color: #fff; border-radius: 50%; width: 22px; height: 22px; display: grid; place-items: center; font: 700 12px system-ui; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.5); }
 .log-btn { margin-top: .4rem; } .why summary { cursor: pointer; color: var(--muted); }
 .reasons { margin: .3rem 0 0; padding: 0; list-style: none; font-size: .88rem; }
