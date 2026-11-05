@@ -20,6 +20,7 @@
       <button data-tab="map">Map</button>
       <button data-tab="photos">Photos</button>
       <button data-tab="bucks">Bucks</button>
+      <button data-tab="hunts">Hunts</button>
       <button data-tab="settings">Settings</button>
     </nav>
   </header>
@@ -32,6 +33,7 @@
           <select id="plan-target"><option value="">Any deer</option></select>
         </label>
         <button id="plan-refresh" class="ghost">↻ Refresh weather</button>
+        <button id="plan-log" class="ghost">📝 Log a hunt</button>
         <span id="plan-status" class="muted"></span>
       </div>
       <div id="plan-today" class="today"></div>
@@ -97,6 +99,34 @@
       <div id="buck-list" class="grid wide"></div>
     </section>
 
+    <!-- HUNTS -->
+    <section id="tab-hunts" class="tab">
+      <div class="toolbar"><button id="hunt-new">＋ Log a hunt</button><span id="hunt-summary" class="muted small"></span></div>
+      <div id="hunt-form" class="card" hidden>
+        <h3 id="hunt-form-title">Log a hunt</h3>
+        <div class="row">
+          <label>Stand <select id="hf-stand"></select></label>
+          <label>Date <input id="hf-date" type="date"></label>
+          <label>Sit <select id="hf-which"><option value="AM">Morning</option><option value="midday">Midday</option><option value="PM">Evening</option></select></label>
+        </div>
+        <div class="small muted" style="margin:.2rem 0 .3rem">What happened?</div>
+        <div class="row" id="hf-outcome">
+          <button type="button" class="ghost tiny" data-o="none">Saw nothing</button>
+          <button type="button" class="ghost tiny" data-o="does">Saw deer, no bucks</button>
+          <button type="button" class="ghost tiny" data-o="bucks">Saw bucks</button>
+          <button type="button" class="ghost tiny" data-o="shot">Shot a buck 🎯</button>
+        </div>
+        <div id="hf-obs-wrap">
+          <p class="small muted" style="margin:.6rem 0 .3rem">Tap the map where you saw deer, one tap per deer or group. Drag a pin to adjust it.</p>
+          <div id="hunt-map"></div>
+          <div id="hf-obs" class="obs-list"></div>
+        </div>
+        <label style="display:flex;margin-top:.6rem">Notes <textarea id="hf-notes" rows="2" placeholder="Wind swirled at 5pm, does came out of the cutover…"></textarea></label>
+        <div class="row"><button id="hf-save">Save hunt</button><button id="hf-cancel" class="ghost">Cancel</button></div>
+      </div>
+      <div id="hunt-list" class="hunt-list"></div>
+    </section>
+
     <!-- SETTINGS -->
     <section id="tab-settings" class="tab">
       <div class="card">
@@ -129,7 +159,7 @@
           <button id="demo" class="ghost">Load demo property</button>
           <button id="wipe" class="danger">Erase everything</button>
         </div>
-        <p class="small muted">App version <b id="app-version">2026.11.05-11</b> · features: satellite stand check, property lines, weather patterns, buck chances on Plan, better buck names</p>
+        <p class="small muted">App version <b id="app-version">2026.11.05-12</b> · features: hunt log, satellite stand check, property lines, weather patterns, buck chances on Plan, better buck names</p>
       </div>
     </section>
   </main>

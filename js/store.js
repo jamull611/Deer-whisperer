@@ -1,6 +1,6 @@
 /* Local persistence in IndexedDB (photos can be big, so localStorage is not enough). Nothing leaves the device. */
 (function () {
-  const DB = 'deer-whisperer', VERSION = 1, STORES = ['cameras', 'stands', 'bucks', 'photos', 'settings'];
+  const DB = 'deer-whisperer', VERSION = 2, STORES = ['cameras', 'stands', 'bucks', 'photos', 'settings', 'hunts'];
   let dbp;
   function open() {
     if (dbp) return dbp;

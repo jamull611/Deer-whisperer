@@ -87,7 +87,19 @@ main { max-width: 1100px; margin: 0 auto; padding: 12px 16px 60px; }
 .pill.chance-outside { background: transparent; color: var(--muted); }
 .pattern { border-top: 1px solid var(--border); padding-top: .4rem; margin-top: .2rem; }
 .pattern .pill { vertical-align: 1px; }
-.why { margin-top: .2rem; } .why summary { cursor: pointer; color: var(--muted); }
+.why { margin-top: .2rem; }
+#hunt-map { height: min(45vh, 360px); border-radius: var(--radius); border: 1px solid var(--border); }
+#hf-outcome button.on { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+.obs-list { display: grid; gap: .4rem; margin-top: .5rem; }
+.obs { display: grid; grid-template-columns: auto 1fr; gap: .4rem .6rem; align-items: center; background: var(--surface-2); border-radius: 8px; padding: .4rem .5rem; }
+.obs .n { font-weight: 700; width: 1.6rem; height: 1.6rem; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--accent-text); }
+.obs .f { display: flex; flex-wrap: wrap; gap: .3rem; min-width: 0; }
+.obs .f select, .obs .f input { width: auto; max-width: 100%; }
+.hunt-list { display: grid; gap: .6rem; margin-top: .6rem; }
+.hunt { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .6rem .8rem; }
+.hunt .head { display: flex; justify-content: space-between; gap: .5rem; font-weight: 600; }
+.obs-pin { background: var(--accent); color: #fff; border-radius: 50%; width: 22px; height: 22px; display: grid; place-items: center; font: 700 12px system-ui; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.5); }
+.log-btn { margin-top: .4rem; } .why summary { cursor: pointer; color: var(--muted); }
 .reasons { margin: .3rem 0 0; padding: 0; list-style: none; font-size: .88rem; }
 .reasons li::before { content: "• "; }
 .reasons li.p::before { content: "＋ "; color: var(--good); font-weight: 700; }

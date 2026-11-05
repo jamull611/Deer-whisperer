@@ -47,7 +47,7 @@
       const cond = p.wxSnap || (weather ? Patterns.conditionsAt(weather, p.takenAt) : null);
       return {
         ...p, cam,
-        heading: Geo.travelHeading(cam.facing, p.travel),
+        heading: p.heading != null ? p.heading : Geo.travelHeading(cam.facing, p.travel),
         period: period(p.takenAt, cam.lat, cam.lng),
         wx: cond, cond,
         moon: Astro.moonIllumination(new Date(p.takenAt)),
@@ -227,6 +227,20 @@
     const rut = rutBonus(mid, cfg);
     if (rut) { bonus += rut.b; reasons.push({ v: 1, t: rut.txt }); }
 
+    // --- Your own sits at this stand (hunt log) ---
+    const mine = (ctx.hunts || []).filter((h) => h.standId === stand.id && h.outcome);
+    if (mine.length) {
+      const same = mine.filter((h) => h.which === which), use = same.length >= 2 ? same : mine;
+      const sawDeer = use.filter((h) => h.outcome !== 'none').length;
+      const sawBuck = use.filter((h) => h.outcome === 'bucks' || h.outcome === 'shot').length;
+      const sawTarget = targetBuckId ? use.filter((h) => (h.obs || []).some((o) => o.buckId === targetBuckId)).length : 0;
+      const deerRate = (sawDeer + 1) / (use.length + 2), buckRate = (sawBuck + 0.5) / (use.length + 2);
+      const w = Math.min(1, use.length / 6); // a few sits only nudge the score
+      bonus += w * (0.14 * (deerRate - 0.5) + 0.1 * (buckRate - 0.25)) + (sawTarget ? 0.04 : 0);
+      const lbl = (use === same ? (which === 'AM' ? 'morning ' : which === 'PM' ? 'evening ' : '') : '') + (use.length === 1 ? 'sit' : 'sits');
+      reasons.push({ v: deerRate >= 0.5 ? 1 : -1, t: `Your ${use.length} ${lbl} here: deer on ${sawDeer}, bucks on ${sawBuck}` + (targetBuckId ? (sawTarget ? `, him on ${sawTarget}` : ', not him yet') : '') });
+    }
+
     // --- Learned weather pattern (this buck, or this stand's deer) ---
     const pat = ctx.cond && (targetBuckId ? ctx.cond.bucks[targetBuckId] : ctx.cond.stands[stand.id]);
     r_bins = wx ? Patterns.sitBins(wx, sitDT, sitDP, ill.fraction) : null;
@@ -307,9 +321,9 @@
     return out;
   }
 
-  function planSits({ stands, sightings, weather, settings, targetBuckId, patterns, cond, bucks = [], now = Date.now(), days = 16 }) {
+  function planSits({ stands, sightings, weather, settings, targetBuckId, patterns, cond, bucks = [], hunts = [], now = Date.now(), days = 16 }) {
     const cfg = config(settings);
-    const ctx = { sightings, weather, cfg, targetBuckId, patterns, cond, now };
+    const ctx = { sightings, weather, cfg, targetBuckId, patterns, cond, hunts, now };
     const lastHour = weather && weather.hours.length ? weather.hours[weather.hours.length - 1].t : now + 7 * DAY;
     const out = [];
     for (let d = 0; d < days; d++) {

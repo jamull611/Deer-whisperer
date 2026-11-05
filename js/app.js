@@ -18,7 +18,7 @@
 
   // ---------- data ----------
   async function loadAll() {
-    [S.cameras, S.stands, S.bucks, S.photos] = await Promise.all(['cameras', 'stands', 'bucks', 'photos'].map(Store.all));
+    [S.cameras, S.stands, S.bucks, S.photos, S.hunts] = await Promise.all(['cameras', 'stands', 'bucks', 'photos', 'hunts'].map(Store.all));
     S.photos.sort((a, b) => (b.takenAt || 0) - (a.takenAt || 0));
     S.settings = {
       rutPeak: await Store.getSetting('rutPeak', Engine.DEFAULTS.rutPeak),
@@ -35,7 +35,22 @@
     if (pts.length) return { lat: pts.reduce((a, p) => a + p.lat, 0) / pts.length, lng: pts.reduce((a, p) => a + p.lng, 0) / pts.length };
     return S.settings.center;
   }
-  const sightings = () => Engine.enrichSightings(S.photos, S.cameras, S.weather);
+  /** Deer you saw from the stand become sightings at the spot you tapped, like a camera photo there. */
+  function huntSightings() {
+    const cams = [], photos = [];
+    for (const h of S.hunts || []) {
+      const st = S.stands.find((s) => s.id === h.standId);
+      for (const o of h.obs || []) {
+        if (!o.kind || o.lat == null) continue;
+        const cam = { id: 'hunt-' + o.id, name: `your sit at ${st ? st.name : 'a stand'}`, lat: o.lat, lng: o.lng, facing: null, virtual: true };
+        cams.push(cam);
+        const n = Math.min(3, Math.max(1, Number(o.count) || 1));
+        for (let i = 0; i < n; i++) photos.push({ id: `h-${o.id}-${i}`, cameraId: cam.id, takenAt: o.time || h.start, kind: o.kind, buckId: o.kind === 'buck' ? o.buckId || '' : '', heading: o.heading === '' || o.heading == null ? null : Number(o.heading), fromHunt: true });
+      }
+    }
+    return { cams, photos };
+  }
+  const sightings = () => { const hs = huntSightings(); return Engine.enrichSightings([...S.photos, ...hs.photos], [...S.cameras, ...hs.cams], S.weather); };
   const camName = (id) => (S.cameras.find((c) => c.id === id) || {}).name || '—';
   const buckName = (id) => (S.bucks.find((b) => b.id === id) || {}).name || '—';
 
@@ -88,6 +103,7 @@
     if (name === 'plan') renderPlan();
     if (name === 'photos') renderPhotos();
     if (name === 'bucks') renderBucks();
+    if (name === 'hunts') renderHunts();
     try { localStorage.setItem('dw.tab', name); } catch { /* ignore */ }
   }
 
@@ -486,6 +502,131 @@
     toast('Saved. In Buck ID, tap “Import bucks & cameras from app”.', 4000);
   }
 
+  // ---------- hunt log ----------
+  const OUTCOME = { none: 'Saw nothing', does: 'Saw deer, no bucks', bucks: 'Saw bucks', shot: 'Shot a buck 🎯' };
+  const OBS_KIND = { doe: 'Doe', fawn: 'Fawn', buck: 'Buck', deer: 'Deer (not sure)' };
+  const DIR8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  let huntMap = null, huntLayer = null, draft = null;
+
+  function sitWindowFor(standId, dayMs, which) {
+    const st = S.stands.find((s) => s.id === standId) || center() || { lat: 0, lng: 0 };
+    const sun = Astro.sunTimes(new Date(dayMs + 12 * 36e5), st.lat, st.lng);
+    if (which === 'AM') return { start: +sun.sunrise - 30 * 60e3, end: +sun.sunrise + 2.5 * 36e5 };
+    if (which === 'PM') return { start: +sun.sunset - 2.5 * 36e5, end: +sun.sunset + 30 * 60e3 };
+    return { start: dayMs + 11 * 36e5, end: dayMs + 14 * 36e5 };
+  }
+  function openHuntForm(pre = {}) {
+    if (!S.stands.length) { toast('Add your stands on the Map tab first.'); return; }
+    showTab('hunts');
+    const now = new Date(), d0 = new Date(); d0.setHours(0, 0, 0, 0);
+    draft = pre.id ? JSON.parse(JSON.stringify(pre)) : {
+      id: Store.uid(), standId: pre.standId || S.lastHuntStand || S.stands[0].id,
+      day: pre.day || d0.getTime(), which: pre.which || (now.getHours() < 11 ? 'AM' : now.getHours() < 14 ? 'midday' : 'PM'),
+      predicted: pre.score ?? null, outcome: '', obs: [], notes: '',
+    };
+    $('#hunt-form-title').textContent = pre.id ? 'Edit hunt' : 'Log a hunt';
+    $('#hf-stand').innerHTML = S.stands.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    $('#hf-stand').value = draft.standId;
+    $('#hf-date').value = toLocalInput(draft.day).slice(0, 10);
+    $('#hf-which').value = draft.which;
+    $('#hf-notes').value = draft.notes || '';
+    $('#hunt-form').hidden = false;
+    renderOutcome(); initHuntMap(); renderObs();
+    $('#hunt-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function renderOutcome() {
+    document.querySelectorAll('#hf-outcome button').forEach((b) => b.classList.toggle('on', b.dataset.o === draft.outcome));
+    $('#hf-obs-wrap').hidden = draft.outcome === 'none';
+  }
+  function initHuntMap() {
+    const st = S.stands.find((s) => s.id === draft.standId);
+    if (!huntMap) {
+      huntMap = L.map('hunt-map');
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Imagery © Esri' }).addTo(huntMap);
+      huntLayer = L.layerGroup().addTo(huntMap);
+      huntMap.on('click', (e) => {
+        if (!draft) return;
+        const sit = sitWindowFor(draft.standId, draft.day, draft.which);
+        draft.obs.push({ id: Store.uid(), lat: e.latlng.lat, lng: e.latlng.lng, kind: draft.outcome === 'does' ? 'doe' : draft.outcome === 'bucks' || draft.outcome === 'shot' ? 'buck' : 'deer', count: 1, buckId: '', heading: '', time: Math.min(Date.now(), Math.round((sit.start + sit.end) / 2)) });
+        if (!draft.outcome) { draft.outcome = 'does'; renderOutcome(); }
+        renderObs();
+      });
+    }
+    setTimeout(() => { huntMap.invalidateSize(); if (st) huntMap.setView([st.lat, st.lng], 17); }, 50);
+  }
+  function renderObs() {
+    if (!huntLayer) return;
+    huntLayer.clearLayers();
+    const st = S.stands.find((s) => s.id === draft.standId);
+    if (st) L.marker([st.lat, st.lng], { icon: L.divIcon({ className: '', html: '<div class="mk">🪜</div>', iconSize: [26, 26], iconAnchor: [13, 13] }) }).addTo(huntLayer);
+    draft.obs.forEach((o, i) => {
+      const m = L.marker([o.lat, o.lng], { draggable: true, icon: L.divIcon({ className: '', html: `<div class="obs-pin">${i + 1}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) }).addTo(huntLayer);
+      m.on('dragend', () => { const ll = m.getLatLng(); o.lat = ll.lat; o.lng = ll.lng; renderObsList(); });
+    });
+    renderObsList();
+  }
+  function renderObsList() {
+    const st = S.stands.find((s) => s.id === draft.standId);
+    const box = $('#hf-obs'); box.innerHTML = '';
+    if (!draft.obs.length) { box.innerHTML = '<div class="small muted">No deer marked yet.</div>'; return; }
+    draft.obs.forEach((o, i) => {
+      const far = st ? `${Math.round(Geo.distanceYd(st, o))} yds ${Geo.compass(Geo.bearing(st, o))}` : '';
+      const el = document.createElement('div'); el.className = 'obs';
+      el.innerHTML = `<span class="n">${i + 1}</span><div class="f">
+        <select data-f="kind" aria-label="What">${Object.entries(OBS_KIND).map(([k, v]) => `<option value="${k}" ${o.kind === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        <input data-f="count" type="number" min="1" max="20" value="${o.count}" aria-label="How many" style="width:4.2em">
+        ${o.kind === 'buck' ? `<select data-f="buck" aria-label="Which buck"><option value="">Unknown buck</option>${S.bucks.map((b) => `<option value="${b.id}" ${o.buckId === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select>` : ''}
+        <select data-f="heading" aria-label="Heading"><option value="">Heading: not sure</option>${DIR8.map((d, k) => `<option value="${k * 45}" ${String(o.heading) === String(k * 45) ? 'selected' : ''}>Heading ${d}</option>`).join('')}</select>
+        <input data-f="time" type="time" value="${new Date(o.time - new Date(o.time).getTimezoneOffset() * 6e4).toISOString().slice(11, 16)}" aria-label="Time">
+        <span class="small muted">${far}</span>
+        <button type="button" class="tiny ghost" data-a="rm">Remove</button></div>`;
+      el.querySelector('[data-f=kind]').onchange = (e) => { o.kind = e.target.value; if (o.kind !== 'buck') o.buckId = ''; renderObsList(); };
+      el.querySelector('[data-f=count]').onchange = (e) => { o.count = Math.max(1, Number(e.target.value) || 1); };
+      const bs = el.querySelector('[data-f=buck]'); if (bs) bs.onchange = (e) => { o.buckId = e.target.value; };
+      el.querySelector('[data-f=heading]').onchange = (e) => { o.heading = e.target.value; };
+      el.querySelector('[data-f=time]').onchange = (e) => { const [hh, mm] = e.target.value.split(':').map(Number); const d = new Date(draft.day); d.setHours(hh, mm, 0, 0); o.time = d.getTime(); };
+      el.querySelector('[data-a=rm]').onclick = () => { draft.obs.splice(i, 1); renderObs(); };
+      box.appendChild(el);
+    });
+  }
+  async function saveHunt() {
+    if (!draft.outcome) { toast('Pick what happened first.'); return; }
+    draft.standId = $('#hf-stand').value; draft.which = $('#hf-which').value; draft.notes = $('#hf-notes').value;
+    const dd = $('#hf-date').value; if (dd) { const [y, m, d] = dd.split('-').map(Number); const nd = new Date(y, m - 1, d).getTime(); if (nd !== draft.day) { const shift = nd - draft.day; draft.obs.forEach((o) => (o.time += shift)); draft.day = nd; } }
+    if (draft.outcome === 'none') draft.obs = [];
+    if ((draft.outcome === 'bucks' || draft.outcome === 'shot') && !draft.obs.some((o) => o.kind === 'buck')) { toast('Mark where you saw the buck on the map (tap it, then set it to Buck).', 4500); return; }
+    const sit = sitWindowFor(draft.standId, draft.day, draft.which);
+    draft.start = sit.start; draft.end = sit.end;
+    draft.wx = S.weather ? Patterns.conditionsAt(S.weather, Math.min(Date.now(), sit.start + 36e5)) : null;
+    draft.saved = Date.now();
+    await Store.put('hunts', draft);
+    S.hunts = S.hunts.filter((h) => h.id !== draft.id).concat([draft]);
+    S.lastHuntStand = draft.standId;
+    draft = null; $('#hunt-form').hidden = true;
+    renderHunts(); dataChanged(true); toast('Hunt saved. The Plan now counts it.');
+  }
+  function renderHunts() {
+    const list = [...(S.hunts || [])].sort((a, b) => b.day - a.day || (b.start || 0) - (a.start || 0));
+    const box = $('#hunt-list'); box.innerHTML = '';
+    const deer = list.filter((h) => h.outcome && h.outcome !== 'none').length, bucks = list.filter((h) => h.outcome === 'bucks' || h.outcome === 'shot').length;
+    $('#hunt-summary').textContent = list.length ? `${list.length} sit${list.length > 1 ? 's' : ''}: deer on ${deer}, bucks on ${bucks}` : '';
+    if (!list.length) { box.innerHTML = '<div class="empty">No hunts logged yet. After a sit, tap “＋ Log a hunt”, or use “📝 Log this hunt” on a sit in the Plan tab.</div>'; return; }
+    for (const h of list) {
+      const st = S.stands.find((s) => s.id === h.standId);
+      const obs = (h.obs || []).map((o) => `${o.count > 1 ? o.count + ' ' : ''}${o.kind === 'buck' ? (S.bucks.find((b) => b.id === o.buckId) || {}).name || 'buck' : OBS_KIND[o.kind].toLowerCase()}${o.count > 1 && o.kind !== 'buck' ? 's' : ''}${st ? ` (${Math.round(Geo.distanceYd(st, o))} yds ${Geo.compass(Geo.bearing(st, o))})` : ''}`);
+      const wx = h.wx ? `${Math.round(h.wx.temp)}°F · ${Geo.compass(h.wx.windDir)} ${Math.round(h.wx.wind)} mph` : '';
+      const el = document.createElement('div'); el.className = 'hunt';
+      el.innerHTML = `<div class="head"><span>${dayLabel(h.day)} ${h.which === 'AM' ? 'morning' : h.which === 'PM' ? 'evening' : 'midday'} · ${esc(st ? st.name : 'deleted stand')}</span>${h.predicted != null ? `<span class="muted small">app said ${h.predicted}</span>` : ''}</div>
+        <div><span class="pill ${h.outcome === 'none' ? '' : 'good'}">${OUTCOME[h.outcome] || '—'}</span> <span class="small muted">${wx}</span></div>
+        ${obs.length ? `<div class="small">${esc(obs.join(', '))}</div>` : ''}
+        ${h.notes ? `<div class="small muted">${esc(h.notes)}</div>` : ''}
+        <div class="row" style="margin-top:.3rem"><button class="tiny ghost" data-a="edit">Edit</button><button class="tiny ghost" data-a="del">Delete</button></div>`;
+      el.querySelector('[data-a=edit]').onclick = () => openHuntForm(h);
+      el.querySelector('[data-a=del]').onclick = async () => { if (!confirm('Delete this hunt?')) return; await Store.del('hunts', h.id); S.hunts = S.hunts.filter((x) => x !== h); renderHunts(); dataChanged(true); };
+      box.appendChild(el);
+    }
+  }
+
   // ---------- bucks ----------
   function renderBucks() {
     const box = $('#buck-list'); box.innerHTML = '';
@@ -534,7 +675,8 @@
   function sitDetail(r) {
     const wx = r.wx ? `${Math.round(r.wx.temp)}°F · ${Geo.compass(r.wx.windDir)} ${Math.round(r.wx.wind)} mph (gust ${Math.round(r.wx.gust)}) · ${r.wx.pressure ? r.wx.pressure.toFixed(2) + ' inHg' : ''} · ${r.wx.precip > 0.01 ? r.wx.precip.toFixed(2) + '" rain' : 'dry'}` : 'No forecast';
     return `<div class="head"><span>${sitTitle(r)}</span><span class="score">${r.score}</span></div>
-      <div class="small muted">${Engine.fmtTime(r.start)}–${Engine.fmtTime(r.end)} · ${wx} · ${Astro.phaseEmoji(r.moon.phase)} ${Math.round(r.moon.fraction * 100)}%</div>${buckLine(r)}${reasonList(r)}`;
+      <div class="small muted">${Engine.fmtTime(r.start)}–${Engine.fmtTime(r.end)} · ${wx} · ${Astro.phaseEmoji(r.moon.phase)} ${Math.round(r.moon.fraction * 100)}%</div>${buckLine(r)}${reasonList(r)}
+      ${r.start <= Date.now() + 2 * 36e5 ? `<button class="tiny ghost log-btn" data-log="${r.stand.id}|${r.day}|${r.which}|${r.score}">📝 Log this hunt</button>` : ''}`;
   }
   const CHANCE = { good: 'Good chance', possible: 'Possible', outside: 'Outside chance' };
   function buckLine(r) {
@@ -569,7 +711,7 @@
     const sts = sightings();
     const patterns = Object.fromEntries(S.bucks.map((b) => [b.id, Engine.buckPattern(b, sts)]));
     const cond = condPatterns(sts);
-    const sits = S.stands.length ? Engine.planSits({ stands: S.stands, sightings: sts, weather: S.weather, settings: S.settings, targetBuckId: S.target || null, patterns, cond, bucks: S.bucks }) : [];
+    const sits = S.stands.length ? Engine.planSits({ stands: S.stands, sightings: sts, weather: S.weather, settings: S.settings, targetBuckId: S.target || null, patterns, cond, bucks: S.bucks, hunts: S.hunts }) : [];
 
     // best list
     // Every sit scoring 80+, in date order (morning before evening, then best stand first).
@@ -666,7 +808,7 @@
     };
     $('#wipe').onclick = async () => {
       if (!confirm('Erase all cameras, stands, bucks and photos on this device?')) return;
-      for (const s of ['cameras', 'stands', 'bucks', 'photos', 'settings']) await Store.clear(s);
+      for (const s of ['cameras', 'stands', 'bucks', 'photos', 'settings', 'hunts']) await Store.clear(s);
       await boot(true); toast('All data erased');
     };
     $('#demo').onclick = async () => {
@@ -696,6 +838,18 @@
         S.settings.center = { lat: pos.coords.latitude, lng: pos.coords.longitude }; Store.setSetting('center', S.settings.center);
       }, () => toast('Could not get your location'));
     };
+    $('#hunt-new').onclick = () => openHuntForm();
+    $('#plan-log').onclick = () => openHuntForm();
+    $('#hf-save').onclick = saveHunt;
+    $('#hf-cancel').onclick = () => { draft = null; $('#hunt-form').hidden = true; };
+    document.querySelectorAll('#hf-outcome button').forEach((b) => (b.onclick = () => { draft.outcome = b.dataset.o; renderOutcome(); if (draft.outcome !== 'none') setTimeout(() => huntMap && huntMap.invalidateSize(), 30); }));
+    $('#hf-stand').onchange = (e) => { draft.standId = e.target.value; initHuntMap(); renderObs(); };
+    $('#hf-which').onchange = (e) => { draft.which = e.target.value; };
+    $('#tab-plan').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-log]'); if (!b) return;
+      const [standId, day, which, score] = b.dataset.log.split('|');
+      openHuntForm({ standId, day: Number(day), which, score: Number(score) });
+    });
     $('#draw-prop').onclick = () => { showTab('map'); startDraw('property'); };
     $('#draw-off').onclick = () => { showTab('map'); startDraw('offlimits'); };
     $('#draw-undo').onclick = () => { if (drawing) { drawing.pts.pop(); updateDrawMsg(); } };
