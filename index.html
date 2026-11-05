@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Deer Whisperer</title>
+  <meta name="description" content="Trail-camera buck tracker and stand planner: wind, weather, moon and sightings in one place.">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">🦌</span> Deer Whisperer</div>
+    <nav class="tabs" role="tablist">
+      <button data-tab="plan" class="active">Plan</button>
+      <button data-tab="map">Map</button>
+      <button data-tab="photos">Photos</button>
+      <button data-tab="bucks">Bucks</button>
+      <button data-tab="settings">Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- PLAN -->
+    <section id="tab-plan" class="tab active">
+      <div class="toolbar">
+        <label>Hunting for
+          <select id="plan-target"><option value="">Any deer</option></select>
+        </label>
+        <button id="plan-refresh" class="ghost">↻ Refresh weather</button>
+        <span id="plan-status" class="muted"></span>
+      </div>
+      <div id="plan-today" class="today"></div>
+      <h2>Best upcoming sits</h2>
+      <div id="plan-best" class="best-list"></div>
+      <h2>Stand × day outlook</h2>
+      <p class="muted small">Each cell is a sit (morning ☀ / evening ☾) scored 0–100. Tap a cell for the reasons.</p>
+      <div class="matrix-wrap"><table id="plan-matrix" class="matrix"></table></div>
+      <div id="plan-detail" class="detail"></div>
+      <h2>Suggested new stand spots</h2>
+      <div id="plan-recs"></div>
+    </section>
+
+    <!-- MAP -->
+    <section id="tab-map" class="tab">
+      <div class="toolbar">
+        <button id="add-camera">＋ Camera</button>
+        <button id="add-stand">＋ Stand</button>
+        <button id="locate-me" class="ghost">◎ My location</button>
+        <span id="map-hint" class="muted"></span>
+      </div>
+      <div id="map"></div>
+      <p class="muted small">Tap a marker to edit it. Drag to move. Arrow on a camera = the way the lens faces. Dashed markers are suggested stand spots.</p>
+    </section>
+
+    <!-- PHOTOS -->
+    <section id="tab-photos" class="tab">
+      <div class="card upload">
+        <h3>Add trail-cam photos</h3>
+        <div class="row">
+          <label>Camera <select id="up-camera"></select></label>
+          <label class="file-btn">Choose photos<input id="up-files" type="file" accept="image/*" multiple hidden></label>
+          <label class="check"><input type="checkbox" id="up-ai"> Identify with AI</label>
+        </div>
+        <p class="muted small">Date/time is read from the photo's EXIF data (most trail cams write it). You can fix it on each card.</p>
+        <div id="up-progress" class="muted"></div>
+      </div>
+      <div class="toolbar">
+        <label>Camera <select id="ph-filter-cam"><option value="">All</option></select></label>
+        <label>Show <select id="ph-filter-kind">
+          <option value="">All</option><option value="review">Needs review</option><option value="buck">Bucks</option><option value="doe">Does/fawns</option>
+        </select></label>
+        <span id="ph-count" class="muted"></span>
+      </div>
+      <div id="photo-grid" class="grid"></div>
+    </section>
+
+    <!-- BUCKS -->
+    <section id="tab-bucks" class="tab">
+      <div class="toolbar"><button id="add-buck">＋ New buck</button></div>
+      <div id="buck-list" class="grid wide"></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="tab-settings" class="tab">
+      <div class="card">
+        <h3>Hunting area</h3>
+        <label>Rut peak (your area) <input id="set-rut" type="date"></label>
+        <p class="muted small">Most of the Midwest/Northeast peaks Nov 8–15. Southern states vary widely — check your state wildlife agency.</p>
+        <label>Weapon / stand offset
+          <select id="set-shot">
+            <option value="20">Bow — 20 yds off the trail</option>
+            <option value="25">Bow — 25 yds</option>
+            <option value="35">Crossbow — 35 yds</option>
+            <option value="80">Muzzleloader — 80 yds</option>
+            <option value="120">Rifle — 120 yds</option>
+          </select></label>
+        <label>Camera influence radius <select id="set-radius">
+          <option value="300">300 yds</option><option value="500">500 yds</option><option value="800">800 yds</option></select></label>
+      </div>
+      <div class="card">
+        <h3>AI buck identification (optional)</h3>
+        <p class="small">Uses Claude vision with your own Anthropic API key (from console.anthropic.com). The key is saved only in this browser and sent only to Anthropic. Each photo costs roughly a few cents.</p>
+        <label>API key <input id="set-key" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
+        <label>Model <input id="set-model" type="text"></label>
+      </div>
+      <div class="card">
+        <h3>Your data</h3>
+        <p class="small">Everything is stored on this device only. Back it up, or move it to another device, with export/import.</p>
+        <div class="row">
+          <button id="export">⬇ Export backup</button>
+          <label class="file-btn ghost">⬆ Import backup<input id="import" type="file" accept="application/json" hidden></label>
+          <button id="demo" class="ghost">Load demo property</button>
+          <button id="wipe" class="danger">Erase everything</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="modal"><form method="dialog" class="modal-body"><div id="modal-content"></div><div class="row end"><button value="close" class="ghost">Close</button></div></form></dialog>
+  <div id="toast"></div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="vendor/exifr/lite.umd.js"></script>
+  <script src="js/geo.js"></script>
+  <script src="js/astro.js"></script>
+  <script src="js/weather.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/ai.js"></script>
+  <script src="js/demo.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
