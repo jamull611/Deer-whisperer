@@ -1,0 +1,420 @@
+<title>Buck ID</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Layout: one narrow working column — photo queue on top, buck roster below. Same field palette as the Deer Whisperer app. */
+  :root {
+    --bg: #f4f2ec; --surface: #ffffff; --surface-2: #ebe8df; --fg: #1f2a1f; --muted: #626c5b;
+    --line: #d6d2c4; --brand: #2f4a2a; --brand-fg: #ffffff; --accent: #d9530a; --accent-fg: #ffffff;
+    --good: #2b8a3e; --warn: #b8860b; --bad: #c92a2a; --ai: #5f3dc4;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #141a14; --surface: #1d241c; --surface-2: #273026; --fg: #e7ebe2; --muted: #9aa592;
+    --line: #364034; --brand: #22351f; --brand-fg: #e7ebe2; --accent: #f06a1d; --ai: #9775fa; --good: #51cf66; --warn: #fab005; --bad: #ff6b6b; color-scheme: dark; } }
+  :root[data-theme="dark"] {
+    --bg: #141a14; --surface: #1d241c; --surface-2: #273026; --fg: #e7ebe2; --muted: #9aa592;
+    --line: #364034; --brand: #22351f; --brand-fg: #e7ebe2; --accent: #f06a1d; --ai: #9775fa; --good: #51cf66; --warn: #fab005; --bad: #ff6b6b; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { background: var(--bg); color: var(--fg); font: 15px/1.45 var(--font); }
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--brand); }
+  header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--brand); color: var(--brand-fg);
+    padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  header .in { max-width: 900px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+  header h1 { margin: 0; font-size: 1.15rem; }
+  header span { opacity: .8; font-size: .85rem; }
+  main { max-width: 900px; margin: 0 auto; padding-block: 12px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 18px; }
+  h2 { font-size: 1rem; margin: 0; text-wrap: balance; }
+  .muted { color: var(--muted); } .small { font-size: .85rem; }
+  .banner { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 10px 12px; }
+  .banner.warn { border-color: var(--warn); }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button, .filebtn { font: inherit; border: 1px solid transparent; background: var(--accent); color: var(--accent-fg); padding: 8px 12px; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  button.ghost, .filebtn.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
+  button.small { padding: 4px 8px; font-size: .82rem; }
+  button.danger { background: var(--bad); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  button:focus-visible, .filebtn:focus-within, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input, select, textarea { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; width: 100%; min-width: 0; }
+  label { display: grid; gap: 3px; font-size: .8rem; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: grid; align-content: start; min-width: 0; }
+  .card.needs { border-color: var(--warn); }
+  .card.ok { border-color: var(--good); }
+  .card img { width: 100%; max-width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; background: var(--surface-2); }
+  .card .body { padding: 10px; display: grid; gap: 8px; min-width: 0; }
+  .meta { font-size: .78rem; color: var(--muted); font-family: var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .state { font-size: .8rem; font-weight: 600; }
+  .state.wait { color: var(--muted); } .state.run { color: var(--ai); } .state.done { color: var(--good); } .state.err { color: var(--bad); }
+  .ai { font-size: .84rem; border-left: 3px solid var(--ai); padding-left: 8px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .check { display: flex; align-items: center; gap: 6px; color: var(--fg); font-size: .85rem; }
+  .check input { width: auto; }
+  .empty { border: 1px dashed var(--line); border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); }
+  .roster { display: grid; gap: 10px; }
+  .buck { display: grid; grid-template-columns: 96px 1fr; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+  .buck img, .buck .noimg { width: 96px; height: 72px; object-fit: cover; border-radius: 6px; background: var(--surface-2); }
+  .buck .fields { display: grid; gap: 6px; min-width: 0; }
+  .confirm { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: .85rem; }
+  .steps { margin: 0; padding-left: 1.2em; display: grid; gap: 2px; }
+  #toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; z-index: 20; }
+  #toast.show { opacity: .95; }
+  @media (max-width: 420px) { .row2 { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
+</style>
+
+<header><div class="in"><h1>🦌 Buck ID</h1><span>Trail-cam identification for Deer Whisperer, on your Claude plan</span></div></header>
+
+<main>
+  <div id="avail" class="banner small">Connecting to Claude…</div>
+
+  <section class="banner small" aria-labelledby="how">
+    <h2 id="how">How it works</h2>
+    <ol class="steps">
+      <li><b>Add photos</b> from one camera, then tap <b>Identify all</b>.</li>
+      <li>Check each result. Fix anything wrong, and add new bucks to your roster.</li>
+      <li>Tap <b>Save batch file</b>. In the Deer Whisperer app go to Photos → <b>Import from Buck ID</b> and pick the camera.</li>
+    </ol>
+  </section>
+
+  <section style="display:grid;gap:10px" aria-labelledby="ph">
+    <div class="bar">
+      <h2 id="ph" style="margin-right:auto">Photos</h2>
+      <label class="filebtn" for="files">＋ Add photos<input id="files" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden></label>
+      <button id="run" disabled>Identify all</button>
+      <button id="stop" class="ghost" hidden>Stop</button>
+      <button id="save" class="ghost" disabled>Save batch file</button>
+    </div>
+    <div id="progress" class="small muted" aria-live="polite"></div>
+    <div id="grid" class="grid"><div class="empty">No photos yet. Add the photos from one camera at a time, because the batch is imported into a single camera in the app.</div></div>
+  </section>
+
+  <section style="display:grid;gap:10px" aria-labelledby="rs">
+    <div class="bar">
+      <h2 id="rs" style="margin-right:auto">Your bucks <span id="rcount" class="muted small"></span></h2>
+      <label class="filebtn ghost" for="roster-file">Import roster from app<input id="roster-file" type="file" accept="application/json,.json" hidden></label>
+    </div>
+    <p class="small muted" style="margin:0">Claude compares new photos against these reference shots. Clear side views of the rack work best. The roster is saved with this page in your Claude account.</p>
+    <div id="roster" class="roster"></div>
+  </section>
+</main>
+<div id="toast" role="status"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const uid = () => Math.random().toString(36).slice(2, 10);
+  const TRAVEL = { '': 'Not sure / standing', L2R: 'Left → right', R2L: 'Right → left', toward: 'Toward camera', away: 'Away from camera' };
+  const KINDS = { '': '— needs review —', buck: 'Buck', doe: 'Doe', fawn: 'Fawn', none: 'No deer' };
+  const toast = (m, ms = 2800) => { const t = $('#toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), ms); };
+  const fmt = (ms) => new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const toLocalInput = (ms) => { const d = new Date(ms); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+
+  let sample = null, db = null, downloads = null, imgMax = 0;
+  let roster = [];            // [{id, name, points, description, refThumb}]
+  let memoryRoster = false;   // true when the db is unavailable
+  const photos = [];          // queue for this session
+  let ctl = null;
+
+  // ---------- image helpers ----------
+  async function scaled(blob, maxSide, q = 0.82) {
+    const bmp = await createImageBitmap(blob);
+    const k = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', q);
+  }
+  function dataURLToBlob(u) {
+    const [head, b64] = u.split(','); const bin = atob(b64); const a = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+    return new Blob([a], { type: (head.match(/data:([^;]+)/) || [])[1] || 'image/jpeg' });
+  }
+  async function takenAt(file) {
+    try {
+      const ex = await window.exifr.parse(file, { tiff: true, ifd0: true, exif: true, gps: false, xmp: false, icc: false, iptc: false, jfif: false });
+      const d = ex && (ex.DateTimeOriginal || ex.CreateDate || ex.ModifyDate);
+      if (d instanceof Date && !isNaN(d)) return { t: d.getTime(), exif: true };
+    } catch (e) { /* no EXIF, or exifr not loaded */ }
+    return { t: file.lastModified || Date.now(), exif: false };
+  }
+
+  // ---------- roster ----------
+  async function loadRoster() {
+    if (!db) return;
+    try {
+      const snap = await db.collection('bucks').get();
+      roster = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.created || 0) - (b.created || 0));
+    } catch (e) { toast('Could not load your bucks: ' + (e.message || e.code)); }
+    renderRoster(); photos.forEach(renderCard);
+  }
+  async function saveBuck(b) {
+    if (!db) return;
+    const { id, ...data } = b;
+    try { await db.collection('bucks').doc(id).set(data); }
+    catch (e) { toast(e.code === 'quota_exceeded' ? 'Roster is full. Delete a buck first.' : 'Could not save ' + b.name + ': ' + (e.message || e.code), 5000); }
+  }
+  async function deleteBuck(b) {
+    roster = roster.filter((x) => x !== b);
+    if (db) { try { await db.collection('bucks').doc(b.id).delete(); } catch (e) { toast('Could not delete: ' + (e.message || e.code)); } }
+    photos.forEach((p) => { if (p.buckId === b.id) p.buckId = ''; });
+    renderRoster(); photos.forEach(renderCard);
+  }
+  async function addBuck(name, fields = {}) {
+    const b = { id: uid(), name: name.trim(), points: fields.points || '', description: fields.description || '', refThumb: fields.refThumb || '', created: Date.now() };
+    roster.push(b); await saveBuck(b); renderRoster(); return b;
+  }
+
+  function renderRoster() {
+    const box = $('#roster'); box.innerHTML = '';
+    $('#rcount').textContent = roster.length ? `(${roster.length})` : '';
+    if (!roster.length) { box.innerHTML = '<div class="empty">No bucks yet. Identify a few photos and add the bucks you find, or import your roster from the app.</div>'; return; }
+    for (const b of roster) {
+      const el = document.createElement('div'); el.className = 'buck';
+      el.innerHTML = `${b.refThumb ? `<img alt="Reference photo of ${esc(b.name)}" src="${b.refThumb}">` : '<div class="noimg" aria-hidden="true"></div>'}
+        <div class="fields">
+          <input id="bn-${b.id}" aria-label="Name" value="${esc(b.name)}" style="font-weight:700">
+          <div class="row2"><input id="bp-${b.id}" aria-label="Points / age" placeholder="Points / age" value="${esc(b.points)}"><input id="bd-${b.id}" aria-label="Features" placeholder="Identifying features" value="${esc(b.description)}"></div>
+          <div class="confirm"><button class="small ghost" data-a="del">Delete</button></div>
+        </div>`;
+      const upd = () => { b.name = $('#bn-' + b.id, el).value.trim() || b.name; b.points = $('#bp-' + b.id, el).value; b.description = $('#bd-' + b.id, el).value; saveBuck(b); photos.forEach(renderCard); };
+      ['bn-', 'bp-', 'bd-'].forEach((k) => ($('#' + k + b.id, el).onchange = upd));
+      $('[data-a=del]', el).onclick = () => {
+        const c = $('.confirm', el);
+        c.innerHTML = `<span>Delete ${esc(b.name)}?</span><button class="small danger" data-a="yes">Delete</button><button class="small ghost" data-a="no">Keep</button>`;
+        $('[data-a=yes]', c).onclick = () => deleteBuck(b);
+        $('[data-a=no]', c).onclick = renderRoster;
+      };
+      box.appendChild(el);
+    }
+  }
+
+  $('#roster-file').onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    try {
+      const data = JSON.parse(await f.text());
+      if (data.app !== 'deer-whisperer-roster' || !Array.isArray(data.bucks)) throw new Error('This is not a roster file from the Deer Whisperer app.');
+      let added = 0, updated = 0;
+      for (const nb of data.bucks) {
+        if (!nb.name) continue;
+        const ex = roster.find((b) => b.name.toLowerCase() === String(nb.name).toLowerCase());
+        if (ex) { Object.assign(ex, { points: nb.points || ex.points, description: nb.description || ex.description, refThumb: nb.refThumb || ex.refThumb }); await saveBuck(ex); updated++; }
+        else { await addBuck(String(nb.name), nb); added++; }
+      }
+      renderRoster(); photos.forEach(renderCard);
+      toast(`Roster imported: ${added} added, ${updated} updated`);
+    } catch (err) { toast(err.message, 5000); }
+  };
+
+  // ---------- photos ----------
+  $('#files').onchange = async (e) => {
+    const files = [...e.target.files]; e.target.value = '';
+    for (const f of files) {
+      const when = await takenAt(f);
+      const p = { id: uid(), file: f, fileName: f.name, takenAt: when.t, exif: when.exif, thumb: await scaled(f, 520, 0.75), state: 'wait', kind: '', buckId: '', travel: '', confirmed: false };
+      photos.push(p);
+    }
+    photos.sort((a, b) => a.takenAt - b.takenAt);
+    renderGrid(); updateButtons();
+  };
+
+  function renderGrid() {
+    const g = $('#grid'); g.innerHTML = '';
+    if (!photos.length) { g.innerHTML = '<div class="empty">No photos yet. Add the photos from one camera at a time, because the batch is imported into a single camera in the app.</div>'; return; }
+    photos.forEach((p) => { const el = document.createElement('div'); el.id = 'card-' + p.id; g.appendChild(el); renderCard(p); });
+  }
+
+  function aiSummary(p) {
+    const r = p.ai; if (!r) return '';
+    if (!r.deer_present || !r.animals || !r.animals.length) return `No deer seen. ${r.notes || ''}`;
+    const a = r.animals.find((x) => x.kind === 'buck') || r.animals[0];
+    const m = roster.find((b) => b.id === a.match_buck_id);
+    const bits = [`${r.animals.length > 1 ? r.animals.length + ' deer. ' : ''}${a.kind}${a.est_points ? `, about ${a.est_points} points` : ''}.`];
+    if (m) bits.push(`Looks like ${m.name} (${a.match_confidence} confidence).`);
+    else if (a.kind === 'buck') bits.push(`No match in your roster${a.suggested_name ? `; suggested name “${a.suggested_name}”` : ''}.`);
+    if (a.antler_description) bits.push(a.antler_description);
+    if (a.distinguishing_features) bits.push(a.distinguishing_features);
+    return bits.join(' ');
+  }
+
+  function renderCard(p) {
+    const el = document.getElementById('card-' + p.id); if (!el) return;
+    el.className = 'card ' + (p.confirmed ? 'ok' : p.state === 'done' ? 'needs' : '');
+    const stateTxt = { wait: 'Waiting', run: 'Claude is looking…', done: p.confirmed ? 'Checked ✓' : 'Check this result', err: 'Error: ' + (p.err || '') }[p.state];
+    const newName = p.newName ?? (p.ai && p.ai.animals && (p.ai.animals.find((x) => x.kind === 'buck') || {}).suggested_name) ?? '';
+    el.innerHTML = `<img alt="Trail camera photo ${esc(p.fileName)}" src="${p.thumb}">
+      <div class="body">
+        <div class="meta">${esc(p.fileName)} · ${fmt(p.takenAt)}${p.exif ? '' : ' (file date)'}</div>
+        <div class="state ${p.state === 'done' ? 'done' : p.state}">${esc(stateTxt)}</div>
+        ${p.ai ? `<div class="ai">${esc(aiSummary(p))}</div>` : ''}
+        <div class="row2">
+          <label for="k-${p.id}">Animal<select id="k-${p.id}">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${p.kind === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+          <label for="t-${p.id}">Moving in photo<select id="t-${p.id}">${Object.entries(TRAVEL).map(([k, v]) => `<option value="${k}" ${p.travel === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        </div>
+        <label for="b-${p.id}" ${p.kind === 'buck' ? '' : 'hidden'}>Which buck<select id="b-${p.id}"><option value="">Unknown buck</option>${roster.map((b) => `<option value="${b.id}" ${p.buckId === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}<option value="__new" ${p.buckId === '__new' ? 'selected' : ''}>＋ New buck…</option></select></label>
+        <div class="bar" ${p.kind === 'buck' && p.buckId === '__new' ? '' : 'hidden'}>
+          <input id="n-${p.id}" aria-label="New buck name" placeholder="Name this buck" value="${esc(newName)}" style="flex:1">
+          <button class="small" data-a="addbuck">Add to roster</button>
+        </div>
+        <label class="check" for="r-${p.id}" ${p.kind === 'buck' && p.buckId && p.buckId !== '__new' ? '' : 'hidden'}><input type="checkbox" id="r-${p.id}"> Use as this buck’s reference photo</label>
+        <label for="w-${p.id}">Date and time<input type="datetime-local" id="w-${p.id}" value="${toLocalInput(p.takenAt)}"></label>
+        <div class="bar">
+          ${p.state === 'done' && !p.confirmed ? '<button class="small" data-a="ok">✓ Looks right</button>' : ''}
+          <button class="small ghost" data-a="again" ${sample && p.state !== 'run' ? '' : 'disabled'}>${p.ai ? 'Ask again' : 'Identify'}</button>
+          <button class="small ghost" data-a="rm">Remove</button>
+        </div>
+      </div>`;
+    const touch = () => { p.confirmed = true; renderCard(p); updateButtons(); };
+    $('#k-' + p.id, el).onchange = (e) => { p.kind = e.target.value; if (p.kind !== 'buck') p.buckId = ''; touch(); };
+    $('#t-' + p.id, el).onchange = (e) => { p.travel = e.target.value; touch(); };
+    $('#b-' + p.id, el).onchange = (e) => { p.buckId = e.target.value; if (p.buckId !== '__new') touch(); else renderCard(p); };
+    $('#n-' + p.id, el).oninput = (e) => { p.newName = e.target.value; };
+    $('#w-' + p.id, el).onchange = (e) => { const t = new Date(e.target.value).getTime(); if (!isNaN(t)) { p.takenAt = t; p.exif = true; touch(); } };
+    $('[data-a=addbuck]', el).onclick = async () => {
+      const name = ($('#n-' + p.id, el).value || '').trim();
+      if (!name) { toast('Type a name first.'); return; }
+      if (roster.some((b) => b.name.toLowerCase() === name.toLowerCase())) { toast(`${name} is already in your roster. Pick him from the list.`); return; }
+      const a = p.ai && p.ai.animals && p.ai.animals.find((x) => x.kind === 'buck');
+      const b = await addBuck(name, { points: a && a.est_points ? `${a.est_points}pt` : '', description: a ? [a.antler_description, a.distinguishing_features].filter(Boolean).join('. ') : '', refThumb: await scaled(p.file, 420, 0.72) });
+      p.buckId = b.id; touch(); photos.forEach((q) => q !== p && renderCard(q)); toast(`${name} added to your roster`);
+    };
+    $('#r-' + p.id, el).onchange = async (e) => {
+      if (!e.target.checked) return;
+      const b = roster.find((x) => x.id === p.buckId); if (!b) return;
+      b.refThumb = await scaled(p.file, 420, 0.72); await saveBuck(b); renderRoster(); toast(`Reference photo updated for ${b.name}`);
+    };
+    const ok = $('[data-a=ok]', el); if (ok) ok.onclick = touch;
+    $('[data-a=again]', el).onclick = async () => { ctl = new AbortController(); await identify(p, ctl.signal); updateButtons(); };
+    $('[data-a=rm]', el).onclick = () => { photos.splice(photos.indexOf(p), 1); renderGrid(); updateButtons(); };
+  }
+
+  function updateButtons() {
+    const pending = photos.filter((p) => p.state === 'wait' || p.state === 'err').length;
+    $('#run').disabled = !sample || !pending || !!ctl;
+    $('#run').textContent = pending ? `Identify all (${pending})` : 'Identify all';
+    $('#save').disabled = !photos.length;
+    $('#stop').hidden = !ctl;
+  }
+
+  // ---------- Claude ----------
+  function buildPrompt(refs, nImages) {
+    const lines = [
+      'You are an expert whitetail deer biologist helping a hunter catalogue trail-camera photos.',
+      refs.length ? `You are given ${nImages} images. Images 1 to ${refs.length} are reference photos of bucks the hunter has already named:` : 'The hunter has not supplied reference photos.',
+      ...refs.map((b, i) => `  Image ${i + 1}: buck id "${b.id}", name "${b.name}"${b.points ? `, ${b.points}` : ''}${b.description ? `. Notes: ${b.description}` : ''}`),
+    ];
+    const noPic = roster.filter((b) => !refs.includes(b));
+    if (noPic.length) lines.push('Named bucks without a reference photo (match on the notes only): ' + noPic.map((b) => `id "${b.id}" name "${b.name}"${b.description ? ` (${b.description})` : ''}`).join('; '));
+    lines.push(
+      `The LAST image (image ${nImages}) is the new trail-camera photo to identify.`,
+      '',
+      'Identify every deer in the new photo. For bucks, compare carefully against the reference bucks: main-frame shape, tine count and length, brow tines, spread, kickers, stickers, drop tines, body size, scars and ear notches.',
+      'Only report a match when the antler or body evidence supports it; otherwise set match_buck_id to "none" and propose a short hunting-camp nickname in suggested_name.',
+      'movement_in_frame is the direction the deer walks as seen in the image (L2R = from the left side of the image toward the right).',
+      'Read the date, time and temperature from the camera info strip if there is one.',
+      '',
+      'Reply with only one JSON object in exactly this shape:',
+      '{"deer_present": true, "animals": [{"kind": "buck|doe|fawn|unknown_deer|other_animal", "match_buck_id": "<id or none>", "match_confidence": "high|medium|low|none", "est_points": 8, "antler_description": "...", "distinguishing_features": "...", "suggested_name": "...", "movement_in_frame": "L2R|R2L|toward|away|stationary|unknown"}], "overlay_datetime": "YYYY-MM-DDTHH:MM or empty string", "overlay_temperature_f": 41, "notes": "..."}'
+    );
+    return lines.join('\n');
+  }
+
+  async function identify(p, signal) {
+    if (!sample) return;
+    p.state = 'run'; p.err = ''; renderCard(p);
+    const refs = roster.filter((b) => b.refThumb).slice(0, Math.max(0, imgMax - 1));
+    const images = [...refs.map((b) => dataURLToBlob(b.refThumb)), p.file];
+    try {
+      const r = await sample.json(buildPrompt(refs, images.length), { images, signal });
+      if (!r || typeof r !== 'object' || !Array.isArray(r.animals)) throw { code: 'invalid_json', message: 'Unexpected answer' };
+      p.ai = r; p.state = 'done'; p.confirmed = false;
+      // Pre-fill from the answer; the hunter confirms.
+      const a = r.animals.find((x) => x.kind === 'buck') || r.animals[0];
+      if (!r.deer_present || !a) { p.kind = 'none'; }
+      else {
+        p.kind = { buck: 'buck', doe: 'doe', fawn: 'fawn' }[a.kind] || '';
+        if (TRAVEL[a.movement_in_frame] && a.movement_in_frame) p.travel = a.movement_in_frame;
+        if (a.kind === 'buck') {
+          const m = roster.find((b) => b.id === a.match_buck_id);
+          p.buckId = m && (a.match_confidence === 'high' || a.match_confidence === 'medium') ? m.id : '__new';
+          if (p.buckId === '__new') p.newName = a.suggested_name || '';
+        }
+      }
+      if (!p.exif && r.overlay_datetime) { const t = Date.parse(r.overlay_datetime); if (!isNaN(t)) p.takenAt = t; }
+    } catch (e) {
+      if (e && e.code === 'cancelled') { p.state = 'wait'; }
+      else {
+        p.state = 'err';
+        p.err = ({ not_granted: 'Claude access was not allowed for this page.', rate_limited: 'You have hit your Claude usage limit or sent too many at once. Try again later.', image_rejected: 'This image could not be read.', refused: 'Claude declined this image.', invalid_json: 'The answer came back garbled. Tap Ask again.', sampling_disabled: 'Claude is not available for this account.', images_unavailable: 'This view cannot send images to Claude.' })[e && e.code] || ('Something went wrong (' + ((e && e.code) || 'unknown') + '). Tap Ask again.');
+        if (e && ['not_granted', 'sampling_disabled', 'images_unavailable'].includes(e.code)) { sample = null; setAvail(); }
+      }
+    }
+    renderCard(p);
+  }
+
+  $('#run').onclick = async () => {
+    ctl = new AbortController(); updateButtons();
+    const todo = photos.filter((p) => p.state === 'wait' || p.state === 'err');
+    let i = 0;
+    for (const p of todo) {
+      if (ctl.signal.aborted || !sample) break;
+      i++; $('#progress').textContent = `Identifying ${i} of ${todo.length}. Each photo takes about 10–60 seconds.`;
+      await identify(p, ctl.signal);
+      if (p.state === 'err' && /usage limit/.test(p.err)) break;
+    }
+    $('#progress').textContent = ctl.signal.aborted ? 'Stopped.' : `Done. Check the results marked in yellow, then save the batch file.`;
+    ctl = null; updateButtons();
+  };
+  $('#stop').onclick = () => { if (ctl) ctl.abort(); };
+
+  // ---------- batch file ----------
+  $('#save').onclick = async () => {
+    if (!downloads) { toast('Saving files is not available in this view. Open the page in the Claude app or claude.ai.', 5000); return; }
+    $('#save').disabled = true; $('#progress').textContent = 'Preparing batch file…';
+    try {
+      const out = { app: 'deer-whisperer-batch', version: 1, created: new Date().toISOString(), photos: [], bucks: [] };
+      const used = new Set();
+      for (const p of photos) {
+        const b = roster.find((x) => x.id === p.buckId);
+        if (b) used.add(b);
+        out.photos.push({ fileName: p.fileName, takenAt: p.takenAt, exifTrusted: p.exif, kind: p.kind, buckName: b ? b.name : '', travel: p.travel, confirmed: p.confirmed, ai: p.ai || null, image: await scaled(p.file, 1600, 0.85) });
+      }
+      out.bucks = [...used].map((b) => ({ name: b.name, points: b.points, description: b.description }));
+      const name = `buck-id-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.json`;
+      await downloads.save({ filename: name, data: new Blob([JSON.stringify(out)], { type: 'application/json' }) });
+      $('#progress').textContent = `Saved ${name}. Import it in the app under Photos → Import from Buck ID.`;
+    } catch (e) {
+      $('#progress').textContent = '';
+      if (!e || e.code !== 'declined') toast('Could not save the file' + (e && e.code ? ` (${e.code})` : '') + '.', 5000);
+    } finally { $('#save').disabled = !photos.length; }
+  };
+
+  // ---------- startup ----------
+  function setAvail() {
+    const a = $('#avail');
+    if (sample) {
+      a.className = 'banner small';
+      a.textContent = `Ready. Identifications use your Claude plan, with up to ${Math.max(0, imgMax - 1)} reference bucks compared per photo. The first time, Claude asks you to allow this page to use it.` + (memoryRoster ? ' Your roster cannot be saved in this view, so it will be lost when you close the page.' : '');
+    } else {
+      a.className = 'banner small warn';
+      a.textContent = 'Claude photo identification is not available here. Open this page inside the Claude app or on claude.ai while signed in. You can still tag photos by hand and save a batch file.';
+    }
+    updateButtons(); photos.forEach(renderCard);
+  }
+
+  renderRoster();
+  if (!window.claude || !window.claude.use) { setAvail(); return; }
+  (async () => {
+    const [s, d, dl] = await Promise.all([claude.use('sample'), claude.use('db'), claude.use('downloads')]);
+    downloads = dl; db = d; memoryRoster = !d;
+    if (s) {
+      try { const lim = await s.limits(); imgMax = lim && lim.images ? lim.images.maxCount : 0; } catch (e) { imgMax = 0; }
+      sample = imgMax > 0 ? s : null;
+    }
+    setAvail();
+    await loadRoster();
+  })();
+})();
+</script>

@@ -51,5 +51,5 @@
     }
   }
 
-  window.Store = { all, get, put, del, clear, uid, getSetting, setSetting, exportAll, importAll, blobToDataURL };
+  window.Store = { all, get, put, del, clear, uid, getSetting, setSetting, exportAll, importAll, blobToDataURL, dataURLToBlob };
 })();

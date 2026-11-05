@@ -65,8 +65,9 @@
           <label>Camera <select id="up-camera"></select></label>
           <label class="file-btn">Choose photos<input id="up-files" type="file" accept="image/*" multiple hidden></label>
           <label class="check"><input type="checkbox" id="up-ai"> Identify with AI</label>
+          <label class="file-btn ghost">⬆ Import from Buck ID<input id="up-batch" type="file" accept="application/json,.json" hidden></label>
         </div>
-        <p class="muted small">Date/time is read from the photo's EXIF data (most trail cams write it). You can fix it on each card.</p>
+        <p class="muted small">Date/time is read from the photo's EXIF data (most trail cams write it). You can fix it on each card. Identified photos in Claude's Buck ID page? Pick the camera, then use <b>Import from Buck ID</b>.</p>
         <div id="up-progress" class="muted"></div>
       </div>
       <div class="toolbar">
@@ -81,7 +82,7 @@
 
     <!-- BUCKS -->
     <section id="tab-bucks" class="tab">
-      <div class="toolbar"><button id="add-buck">＋ New buck</button></div>
+      <div class="toolbar"><button id="add-buck">＋ New buck</button><button id="export-roster" class="ghost">Send roster to Buck ID</button></div>
       <div id="buck-list" class="grid wide"></div>
     </section>
 

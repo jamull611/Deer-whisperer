@@ -296,6 +296,51 @@
     $('#ph-count').textContent = `${list.length} photo${list.length === 1 ? '' : 's'}${list.length > shown.length ? ` (showing ${shown.length})` : ''}`;
   }
 
+  /** Import a batch file saved by the Buck ID page that runs inside Claude. */
+  async function importBatch(file) {
+    const camId = $('#up-camera').value;
+    if (!camId) { toast('Add a camera on the Map tab first, then pick it here.'); return; }
+    let data;
+    try { data = JSON.parse(await file.text()); } catch { toast('That file could not be read.'); return; }
+    if (!data || data.app !== 'deer-whisperer-batch' || !Array.isArray(data.photos)) { toast('This is not a Buck ID batch file.', 4000); return; }
+    const prog = $('#up-progress');
+    const byName = (n) => S.bucks.find((b) => b.name.toLowerCase() === String(n).toLowerCase());
+    let added = 0, skipped = 0, newBucks = 0;
+    for (const bp of data.photos) {
+      prog.textContent = `Importing ${added + skipped + 1} of ${data.photos.length}…`;
+      if (S.photos.some((x) => x.cameraId === camId && x.fileName === bp.fileName && x.takenAt === bp.takenAt)) { skipped++; continue; }
+      const blob = await Store.dataURLToBlob(bp.image);
+      const p = { id: Store.uid(), cameraId: camId, takenAt: bp.takenAt, exifTrusted: !!bp.exifTrusted, kind: bp.kind || '', buckId: '', travel: bp.travel || '',
+        blob, thumb: await makeThumb(blob), fileName: bp.fileName, added: Date.now(), needsCheck: !bp.confirmed, ai: bp.ai ? { at: Date.now(), result: bp.ai, via: 'buck-id' } : undefined };
+      if (bp.kind === 'buck' && bp.buckName) {
+        let b = byName(bp.buckName);
+        if (!b) {
+          const info = (data.bucks || []).find((x) => x.name === bp.buckName) || {};
+          b = { id: Store.uid(), name: bp.buckName, points: info.points || '', description: info.description || '', refPhotoId: p.id, created: Date.now() };
+          await Store.put('bucks', b); S.bucks.push(b); newBucks++;
+        }
+        p.buckId = b.id;
+      }
+      await Store.put('photos', p); S.photos.push(p); added++;
+    }
+    S.photos.sort((a, b) => (b.takenAt || 0) - (a.takenAt || 0));
+    prog.textContent = `Imported ${added} photo${added === 1 ? '' : 's'} into ${camName(camId)}` + (newBucks ? `, added ${newBucks} new buck${newBucks > 1 ? 's' : ''}` : '') + (skipped ? ` (${skipped} already here, skipped)` : '') + '.';
+    renderPhotos(); dataChanged(true);
+  }
+
+  /** Save the buck roster (names, notes, one reference photo each) for the Buck ID page. */
+  function exportRoster() {
+    if (!S.bucks.length) { toast('No bucks to send yet.'); return; }
+    const bucks = S.bucks.map((b) => {
+      const ref = S.photos.find((p) => p.id === b.refPhotoId) || S.photos.find((p) => p.buckId === b.id);
+      return { name: b.name, points: b.points || '', description: b.description || '', refThumb: ref ? ref.thumb : '' };
+    });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: 'deer-whisperer-roster', version: 1, bucks })], { type: 'application/json' }));
+    a.download = 'deer-whisperer-roster.json'; a.click();
+    toast('Roster saved. In Buck ID, tap “Import roster from app”.', 4000);
+  }
+
   // ---------- bucks ----------
   function renderBucks() {
     const box = $('#buck-list'); box.innerHTML = '';
@@ -481,6 +526,8 @@
     $('#ph-filter-cam').onchange = renderPhotos; $('#ph-filter-kind').onchange = renderPhotos;
     $('#plan-target').onchange = (e) => { S.target = e.target.value; renderPlan(); };
     $('#plan-refresh').onclick = async () => { $('#plan-status').textContent = 'Loading weather…'; await ensureWeather(true); dataChanged(true); };
+    $('#up-batch').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importBatch(f); };
+    $('#export-roster').onclick = exportRoster;
     $('#add-buck').onclick = async () => {
       const name = prompt('Buck name'); if (!name) return;
       const b = { id: Store.uid(), name, points: '', description: '', refPhotoId: '', created: Date.now() };

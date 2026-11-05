@@ -18,6 +18,16 @@ No server, no account, no build step. Your data stays on your device.
 | **Suggested stands** | For cameras with deer activity and no stand within 150 yds, it suggests a spot at your shooting distance, downwind of the travel route, and lists the winds it works on. |
 | **AI ID (optional)** | With your own Anthropic API key, Claude looks at each photo, matches bucks against your reference photos, estimates points, reads the date/temperature strip, and guesses travel direction. You confirm or correct it. |
 
+## Buck ID inside Claude (no API credits)
+
+`artifact/buck-id.html` is a companion page published as a Claude artifact. It runs AI identification on your **Claude plan** instead of API credits:
+
+1. Open the Buck ID page in the Claude app or on claude.ai. Add the photos from one camera, then tap **Identify all**.
+2. Check each result and add new bucks to the roster. The roster is saved with the page in your Claude account.
+3. Tap **Save batch file**. In this app go to Photos, pick the camera, then tap **Import from Buck ID**.
+
+To send bucks you've already named in the app, use Bucks → **Send roster to Buck ID**, then **Import roster from app** on the Buck ID page.
+
 ## How a sit is scored
 
 The model is rule-based so you can see *why* it says what it says:
