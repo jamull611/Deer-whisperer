@@ -78,7 +78,7 @@
           <label class="check"><input type="checkbox" id="up-ai"> Identify with AI</label>
           <label class="file-btn ghost">⬆ Import from Buck ID<input id="up-batch" type="file" accept="application/json,.json" hidden></label>
         </div>
-        <p class="muted small">Date/time is read from the photo's EXIF data (most trail cams write it). You can fix it on each card. Identified photos in Claude's Buck ID page? Use <b>Import from Buck ID</b>: each photo goes to the camera with the same name, and any without one go to the camera picked here.</p>
+        <p class="muted small">Date/time is read from the photo's EXIF data (most trail cams write it). You can fix it on each card. To tag a stack of doe photos at once: set Camera and Show: Needs review, then use “Mark shown photos as”. Bursts of the same deer at one camera within 30 minutes count as one sighting. Identified photos in Claude's Buck ID page? Use <b>Import from Buck ID</b>: each photo goes to the camera with the same name, and any without one go to the camera picked here.</p>
         <div id="up-progress" class="muted"></div>
       </div>
       <div class="toolbar">
@@ -87,6 +87,8 @@
           <option value="">All</option><option value="review">Needs review</option><option value="buck">Bucks</option><option value="doe">Does/fawns</option>
         </select></label>
         <span id="ph-count" class="muted"></span>
+        <label>Mark shown photos as <select id="ph-tag"></select></label>
+        <button id="ph-tag-go" class="ghost">Mark</button>
         <label>Move shown photos to <select id="ph-move"></select></label>
         <button id="ph-move-go" class="ghost">Move</button>
       </div>
@@ -159,7 +161,7 @@
           <button id="demo" class="ghost">Load demo property</button>
           <button id="wipe" class="danger">Erase everything</button>
         </div>
-        <p class="small muted">App version <b id="app-version">2026.11.05-13</b> · features: hunt log, satellite stand check, property lines, weather patterns, buck chances on Plan, better buck names</p>
+        <p class="small muted">App version <b id="app-version">2026.11.05-14</b> · features: bulk tagging, burst counting, hunt log, satellite stand check, property lines, weather patterns, buck chances on Plan, better buck names</p>
       </div>
     </section>
   </main>

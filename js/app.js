@@ -45,7 +45,7 @@
         const cam = { id: 'hunt-' + o.id, name: `your sit at ${st ? st.name : 'a stand'}`, lat: o.lat, lng: o.lng, facing: null, virtual: true };
         cams.push(cam);
         const n = Math.min(3, Math.max(1, Number(o.count) || 1));
-        for (let i = 0; i < n; i++) photos.push({ id: `h-${o.id}-${i}`, cameraId: cam.id, takenAt: o.time || h.start, kind: o.kind, buckId: o.kind === 'buck' ? o.buckId || '' : '', heading: o.heading === '' || o.heading == null ? null : Number(o.heading), fromHunt: true });
+        for (let i = 0; i < n; i++) photos.push({ id: `h-${o.id}-${i}`, deerKey: `hunt-${o.id}-${i}`, cameraId: cam.id, takenAt: o.time || h.start, kind: o.kind, buckId: o.kind === 'buck' ? o.buckId || '' : '', heading: o.heading === '' || o.heading == null ? null : Number(o.heading), fromHunt: true });
       }
     }
     return { cams, photos };
@@ -447,6 +447,8 @@
     const list = S.photos.filter((p) => (!fSel.value || p.cameraId === fSel.value) && (
       !kind || (kind === 'review' && (!p.kind || p.needsCheck)) || (kind === 'buck' && p.kind === 'buck') || (kind === 'doe' && (p.kind === 'doe' || p.kind === 'fawn'))));
     $('#ph-move').innerHTML = camOpts; S.shownPhotos = list;
+    $('#ph-tag').innerHTML = '<option value="doe">Doe</option><option value="fawn">Fawn</option><option value="none">No deer</option><option value="buck:">Buck (unknown)</option>' + S.bucks.map((b) => `<option value="buck:${b.id}">Buck: ${esc(b.name)}</option>`).join('');
+    $('#ph-tag-go').disabled = !list.length;
     $('#ph-move-go').disabled = !list.length || !S.cameras.length;
     const grid = $('#photo-grid'); grid.innerHTML = '';
     if (!list.length) grid.innerHTML = '<div class="empty">No photos here yet.</div>';
@@ -867,6 +869,15 @@
       } catch (err) { toast('Could not read that file: ' + err.message, 5000); }
     };
     $('#up-files').onchange = (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) handleUpload(fs); };
+    $('#ph-tag-go').onclick = async () => {
+      const v = $('#ph-tag').value, list = S.shownPhotos || [];
+      if (!list.length) return;
+      const [kind, buckId] = v.startsWith('buck:') ? ['buck', v.slice(5)] : [v, ''];
+      const label = $('#ph-tag').selectedOptions[0].textContent;
+      if (!confirm(`Mark ${list.length} photo${list.length > 1 ? 's' : ''} as ${label}?`)) return;
+      for (const p of list) { p.kind = kind; p.buckId = buckId; p.needsCheck = false; if (kind === 'none') p.travel = ''; await Store.put('photos', p); }
+      toast(`Marked ${list.length} photo${list.length > 1 ? 's' : ''} as ${label}`); renderPhotos(); dataChanged(true);
+    };
     $('#ph-move-go').onclick = async () => {
       const to = $('#ph-move').value, list = S.shownPhotos || [];
       if (!to || !list.length) return;

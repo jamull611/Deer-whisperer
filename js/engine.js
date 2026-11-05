@@ -40,9 +40,31 @@
   }
 
   /** Attach derived info (heading, period, wind at the time, moon) to each photo/sighting. */
+  /**
+   * One visit per deer per camera: photos of the same deer (same named buck, or same kind when not
+   * named) at the same camera less than 30 minutes after the previous one collapse into a single
+   * sighting, so a burst of 10 frames counts once. `photos` on the result says how many it covers.
+   */
+  const BURST_MS = 30 * 60e3;
+  function collapseBursts(list) {
+    const sorted = [...list].sort((a, b) => a.takenAt - b.takenAt), open = new Map(), out = [];
+    for (const s of sorted) {
+      const key = s.cam.id + '|' + (s.deerKey || (s.kind === 'buck' ? 'buck:' + (s.buckId || '?') : s.kind));
+      const cur = open.get(key);
+      if (cur && s.takenAt - cur.lastAt < BURST_MS) {
+        cur.lastAt = s.takenAt; cur.rep.photos++;
+        if (cur.rep.heading == null && s.heading != null) cur.rep.heading = s.heading;
+        continue;
+      }
+      const rep = { ...s, photos: 1 };
+      open.set(key, { rep, lastAt: s.takenAt }); out.push(rep);
+    }
+    return out;
+  }
+
   function enrichSightings(photos, cameras, weather) {
     const camById = Object.fromEntries(cameras.map((c) => [c.id, c]));
-    return photos.filter((p) => p.cameraId && camById[p.cameraId] && p.takenAt && p.kind && p.kind !== 'none').map((p) => {
+    return collapseBursts(photos.filter((p) => p.cameraId && camById[p.cameraId] && p.takenAt && p.kind && p.kind !== 'none').map((p) => {
       const cam = camById[p.cameraId];
       const cond = p.wxSnap || (weather ? Patterns.conditionsAt(weather, p.takenAt) : null);
       return {
@@ -52,7 +74,7 @@
         wx: cond, cond,
         moon: Astro.moonIllumination(new Date(p.takenAt)),
       };
-    });
+    }));
   }
 
   /** Human-readable pattern for one buck. */
