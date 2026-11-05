@@ -72,9 +72,9 @@
   <section class="banner small" aria-labelledby="how">
     <h2 id="how">How it works</h2>
     <ol class="steps">
-      <li><b>Add photos</b> from one camera, then tap <b>Identify all</b>.</li>
+      <li>Pick the <b>camera</b>, <b>add photos</b>, then tap <b>Identify all</b>. Photos from several cameras can go in one batch; set each photo's camera on its card.</li>
       <li>Check each result. Fix anything wrong, and add new bucks to your roster.</li>
-      <li>Tap <b>Save batch file</b>. In the Deer Whisperer app go to Photos → <b>Import from Buck ID</b> and pick the camera.</li>
+      <li>Tap <b>Save batch file</b>. In the Deer Whisperer app go to Photos → <b>Import from Buck ID</b>. Each photo goes to the camera with the same name in the app.</li>
     </ol>
   </section>
 
@@ -86,14 +86,21 @@
       <button id="stop" class="ghost" hidden>Stop</button>
       <button id="save" class="ghost" disabled>Save batch file</button>
     </div>
+    <div class="bar">
+      <label for="cam-default" style="flex:1;min-width:180px">Camera for new photos<select id="cam-default"></select></label>
+      <div class="bar" id="cam-add-row" hidden style="flex:1;min-width:220px">
+        <input id="cam-new" aria-label="New camera name" placeholder="Camera name, as in the app" style="flex:1">
+        <button class="small" id="cam-add">Add</button>
+      </div>
+    </div>
     <div id="progress" class="small muted" aria-live="polite"></div>
-    <div id="grid" class="grid"><div class="empty">No photos yet. Add the photos from one camera at a time, because the batch is imported into a single camera in the app.</div></div>
+    <div id="grid" class="grid"><div class="empty">No photos yet. Pick a camera, then add its photos.</div></div>
   </section>
 
   <section style="display:grid;gap:10px" aria-labelledby="rs">
     <div class="bar">
       <h2 id="rs" style="margin-right:auto">Your bucks <span id="rcount" class="muted small"></span></h2>
-      <label class="filebtn ghost" for="roster-file">Import roster from app<input id="roster-file" type="file" accept="application/json,.json" hidden></label>
+      <label class="filebtn ghost" for="roster-file">Import bucks &amp; cameras from app<input id="roster-file" type="file" accept="application/json,.json" hidden></label>
     </div>
     <p class="small muted" style="margin:0">Claude compares new photos against these reference shots. Clear side views of the rack work best. The roster is saved with this page in your Claude account.</p>
     <div id="roster" class="roster"></div>
@@ -117,6 +124,7 @@
   let roster = [];            // [{id, name, points, description, refThumb}]
   let memoryRoster = false;   // true when the db is unavailable
   const photos = [];          // queue for this session
+  let cameras = [];           // [{id, name}] — names must match the app's cameras
   let ctl = null;
 
   // ---------- image helpers ----------
@@ -141,14 +149,36 @@
     return { t: file.lastModified || Date.now(), exif: false };
   }
 
+  // ---------- cameras ----------
+  function renderCamDefault() {
+    const sel = $('#cam-default'), keep = sel.value;
+    sel.innerHTML = '<option value="">Not set</option>' + cameras.map((c) => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('') + '<option value="__add">＋ Add a camera…</option>';
+    sel.value = cameras.some((c) => c.name === keep) ? keep : '';
+  }
+  async function addCamera(name) {
+    name = name.trim(); if (!name) return null;
+    const ex = cameras.find((c) => c.name.toLowerCase() === name.toLowerCase()); if (ex) return ex;
+    const c = { id: uid(), name }; cameras.push(c);
+    if (db) { try { await db.collection('cameras').doc(c.id).set({ name, created: Date.now() }); } catch (e) { toast('Could not save the camera: ' + (e.message || e.code)); } }
+    renderCamDefault(); photos.forEach(renderCard); return c;
+  }
+  const matchCamera = (label) => {
+    const l = String(label || '').trim().toLowerCase(); if (!l) return null;
+    return cameras.find((c) => c.name.toLowerCase() === l) || cameras.find((c) => l.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(l)) || null;
+  };
+  $('#cam-default').onchange = (e) => { $('#cam-add-row').hidden = e.target.value !== '__add'; if (e.target.value === '__add') $('#cam-new').focus(); };
+  $('#cam-add').onclick = async () => { const c = await addCamera($('#cam-new').value); if (!c) return; $('#cam-new').value = ''; $('#cam-add-row').hidden = true; $('#cam-default').value = c.name; };
+
   // ---------- roster ----------
   async function loadRoster() {
     if (!db) return;
     try {
       const snap = await db.collection('bucks').get();
       roster = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.created || 0) - (b.created || 0));
+      const cs = await db.collection('cameras').get();
+      cameras = cs.docs.map((d) => ({ id: d.id, name: d.data().name })).filter((c) => c.name).sort((a, b) => a.name.localeCompare(b.name));
     } catch (e) { toast('Could not load your bucks: ' + (e.message || e.code)); }
-    renderRoster(); photos.forEach(renderCard);
+    renderRoster(); renderCamDefault(); photos.forEach(renderCard);
   }
   async function saveBuck(b) {
     if (!db) return;
@@ -196,6 +226,8 @@
     try {
       const data = JSON.parse(await f.text());
       if (data.app !== 'deer-whisperer-roster' || !Array.isArray(data.bucks)) throw new Error('This is not a roster file from the Deer Whisperer app.');
+      let camsAdded = 0;
+      for (const c of data.cameras || []) { if (c && c.name && !cameras.some((x) => x.name.toLowerCase() === String(c.name).toLowerCase())) { await addCamera(String(c.name)); camsAdded++; } }
       let added = 0, updated = 0;
       for (const nb of data.bucks) {
         if (!nb.name) continue;
@@ -204,7 +236,7 @@
         else { await addBuck(String(nb.name), nb); added++; }
       }
       renderRoster(); photos.forEach(renderCard);
-      toast(`Roster imported: ${added} added, ${updated} updated`);
+      toast(`Imported: ${added} bucks added, ${updated} updated, ${camsAdded} cameras added`);
     } catch (err) { toast(err.message, 5000); }
   };
 
@@ -233,7 +265,8 @@
     const files = [...e.target.files]; e.target.value = '';
     for (const f of files) {
       const when = await takenAt(f);
-      const p = { id: uid(), file: f, fileName: f.name, takenAt: when.t, exif: when.exif, thumb: await scaled(f, 520, 0.75), state: 'wait', kind: '', buckId: '', travel: '', confirmed: false };
+      const dc = $('#cam-default').value;
+      const p = { id: uid(), cameraName: dc && dc !== '__add' ? dc : '', file: f, fileName: f.name, takenAt: when.t, exif: when.exif, thumb: await scaled(f, 520, 0.75), state: 'wait', kind: '', buckId: '', travel: '', confirmed: false };
       photos.push(p);
     }
     photos.sort((a, b) => a.takenAt - b.takenAt);
@@ -242,7 +275,7 @@
 
   function renderGrid() {
     const g = $('#grid'); g.innerHTML = '';
-    if (!photos.length) { g.innerHTML = '<div class="empty">No photos yet. Add the photos from one camera at a time, because the batch is imported into a single camera in the app.</div>'; return; }
+    if (!photos.length) { g.innerHTML = '<div class="empty">No photos yet. Pick a camera, then add its photos.</div>'; return; }
     photos.forEach((p) => { const el = document.createElement('div'); el.id = 'card-' + p.id; g.appendChild(el); renderCard(p); });
   }
 
@@ -271,6 +304,7 @@
         <div class="meta">Photo ${num(p)} · ${esc(p.fileName)} · ${fmt(p.takenAt)}${p.exif ? '' : ' (file date)'}</div>
         <div class="state ${p.state === 'done' ? 'done' : p.state}">${esc(stateTxt)}</div>
         ${p.ai ? `<div class="ai">${esc(aiSummary(p))}</div>` : ''}
+        <label for="c-${p.id}">Camera<select id="c-${p.id}"><option value="">Not set</option>${cameras.map((c) => `<option value="${esc(c.name)}" ${p.cameraName === c.name ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
         <div class="row2">
           <label for="k-${p.id}">Animal<select id="k-${p.id}">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${p.kind === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
           <label for="t-${p.id}">Moving in photo<select id="t-${p.id}">${Object.entries(TRAVEL).map(([k, v]) => `<option value="${k}" ${p.travel === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
@@ -289,6 +323,7 @@
         </div>
       </div>`;
     const touch = () => { p.confirmed = true; renderCard(p); updateButtons(); };
+    $('#c-' + p.id, el).onchange = (e) => { p.cameraName = e.target.value; p.camManual = true; renderCard(p); };
     $('#k-' + p.id, el).onchange = (e) => { p.kind = e.target.value; if (p.kind !== 'buck') p.buckId = ''; touch(); };
     $('#t-' + p.id, el).onchange = (e) => { p.travel = e.target.value; touch(); };
     $('#b-' + p.id, el).onchange = (e) => { p.buckId = e.target.value; if (p.buckId !== '__new') touch(); else renderCard(p); };
@@ -345,10 +380,10 @@
       'Only report a match when the antler or body evidence supports it; otherwise set match_buck_id to "none" and propose a short hunting-camp nickname in suggested_name.',
       'Trail cameras often catch the same buck many times, so look hard for a match with the earlier photos from this upload before calling a buck new.',
       'movement_in_frame is the direction the deer walks as seen in the image (L2R = from the left side of the image toward the right).',
-      'Read the date, time and temperature from the camera info strip if there is one.',
+      'Read the date, time, temperature and camera name or ID from the camera info strip if there is one.',
       '',
       'Reply with only one JSON object in exactly this shape:',
-      '{"deer_present": true, "animals": [{"kind": "buck|doe|fawn|unknown_deer|other_animal", "match_buck_id": "<id or none>", "match_confidence": "high|medium|low|none", "est_points": 8, "antler_description": "...", "distinguishing_features": "...", "suggested_name": "...", "movement_in_frame": "L2R|R2L|toward|away|stationary|unknown"}], "overlay_datetime": "YYYY-MM-DDTHH:MM or empty string", "overlay_temperature_f": 41, "notes": "..."}'
+      '{"deer_present": true, "animals": [{"kind": "buck|doe|fawn|unknown_deer|other_animal", "match_buck_id": "<id or none>", "match_confidence": "high|medium|low|none", "est_points": 8, "antler_description": "...", "distinguishing_features": "...", "suggested_name": "...", "movement_in_frame": "L2R|R2L|toward|away|stationary|unknown"}], "overlay_datetime": "YYYY-MM-DDTHH:MM or empty string", "overlay_temperature_f": 41, "camera_label": "camera name or ID printed on the photo, or empty string", "notes": "..."}'
     );
     return lines.join('\n');
   }
@@ -388,6 +423,8 @@
           else { p.buckId = '__new'; p.newName = a.suggested_name || ''; }
         }
       }
+      const cm = matchCamera(r.camera_label);
+      if (cm && !p.camManual) p.cameraName = cm.name;
       if (!p.exif && r.overlay_datetime) { const t = Date.parse(r.overlay_datetime); if (!isNaN(t)) p.takenAt = t; }
     } catch (e) {
       if (e && e.code === 'cancelled') { p.state = 'wait'; }
@@ -418,19 +455,20 @@
   // ---------- batch file ----------
   $('#save').onclick = async () => {
     if (!downloads) { toast('Saving files is not available in this view. Open the page in the Claude app or claude.ai.', 5000); return; }
-    $('#save').disabled = true; $('#progress').textContent = 'Preparing batch file…';
+    const unset = photos.filter((p) => !p.cameraName).length;
+    $('#save').disabled = true; $('#progress').textContent = 'Preparing batch file…' + (unset ? ` ${unset} photo${unset > 1 ? 's have' : ' has'} no camera; the app puts ${unset > 1 ? 'them' : 'it'} in the camera you pick there.` : '');
     try {
       const out = { app: 'deer-whisperer-batch', version: 1, created: new Date().toISOString(), photos: [], bucks: [] };
       const used = new Set();
       for (const p of photos) {
         const res = resolved(p);
         if (res) used.add(res.buck || res.name);
-        out.photos.push({ fileName: p.fileName, takenAt: p.takenAt, exifTrusted: p.exif, kind: p.kind, buckName: res ? res.name : '', travel: p.travel, confirmed: p.confirmed, ai: p.ai || null, image: await scaled(p.file, 1600, 0.85) });
+        out.photos.push({ cameraName: p.cameraName || '', fileName: p.fileName, takenAt: p.takenAt, exifTrusted: p.exif, kind: p.kind, buckName: res ? res.name : '', travel: p.travel, confirmed: p.confirmed, ai: p.ai || null, image: await scaled(p.file, 1600, 0.85) });
       }
       out.bucks = [...used].map((b) => (typeof b === 'string' ? { name: b, points: '', description: '' } : { name: b.name, points: b.points, description: b.description }));
       const name = `buck-id-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.json`;
       await downloads.save({ filename: name, data: new Blob([JSON.stringify(out)], { type: 'application/json' }) });
-      $('#progress').textContent = `Saved ${name}. Import it in the app under Photos → Import from Buck ID.`;
+      $('#progress').textContent = `Saved ${name}. Import it in the app under Photos → Import from Buck ID.` + (unset ? ` ${unset} photo${unset > 1 ? 's' : ''} without a camera will go to the camera picked there.` : '');
     } catch (e) {
       $('#progress').textContent = '';
       if (!e || e.code !== 'declined') toast('Could not save the file' + (e && e.code ? ` (${e.code})` : '') + '.', 5000);
@@ -450,7 +488,7 @@
     updateButtons(); photos.forEach(renderCard);
   }
 
-  renderRoster();
+  renderRoster(); renderCamDefault();
   if (!window.claude || !window.claude.use) { setAvail(); return; }
   (async () => {
     const [s, d, dl] = await Promise.all([claude.use('sample'), claude.use('db'), claude.use('downloads')]);

@@ -252,7 +252,8 @@
     const aiA = ai && ai.animals && (ai.animals.find((x) => x.kind === 'buck') || ai.animals[0]);
     el.innerHTML = `<img alt="" src="${p.thumb}">
       <div class="body">
-        <div class="meta">${esc(camName(p.cameraId))} · ${fmtDT(p.takenAt)} ${p.kind && cam ? `· ${Engine.period(p.takenAt, cam.lat, cam.lng)}` : ''}</div>
+        <label><select data-f="cam" aria-label="Camera">${S.cameras.map((c) => `<option value="${c.id}" ${p.cameraId === c.id ? 'selected' : ''}>📷 ${esc(c.name)}</option>`).join('')}${S.cameras.some((c) => c.id === p.cameraId) ? '' : '<option value="" selected>📷 No camera</option>'}</select></label>
+        <div class="meta">${fmtDT(p.takenAt)} ${p.kind && cam ? `· ${Engine.period(p.takenAt, cam.lat, cam.lng)}` : ''}</div>
         ${ai ? `<div class="small"><span class="pill ai">AI</span>${esc(aiA ? `${aiA.kind}${aiA.est_points ? ` ~${aiA.est_points}pt` : ''}${aiA.match_confidence !== 'none' ? ` · match ${aiA.match_confidence}` : ''}. ${aiA.antler_description || ''}` : ai.notes)}</div>` : ''}
         <label><select data-f="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${p.kind === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
         <label ${p.kind === 'buck' ? '' : 'hidden'}><select data-f="buck"><option value="">Which buck?</option>${S.bucks.map((b) => `<option value="${b.id}" ${p.buckId === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}<option value="__new">＋ New buck${p.aiSuggest ? ` (“${esc(p.aiSuggest.name)}”)` : ''}…</option></select></label>
@@ -275,6 +276,7 @@
       save(true);
     };
     el.querySelector('[data-f=travel]').onchange = (e) => { p.travel = e.target.value; save(true); };
+    el.querySelector('[data-f=cam]').onchange = (e) => { p.cameraId = e.target.value; save(true); };
     el.querySelector('[data-f=time]').onchange = (e) => { const t = new Date(e.target.value).getTime(); if (!isNaN(t)) { p.takenAt = t; save(true); } };
     const ok = el.querySelector('[data-a=ok]'); if (ok) ok.onclick = () => save(true);
     el.querySelector('[data-a=ai]').onclick = async (e) => { e.target.disabled = true; e.target.textContent = 'Looking…'; await runAI(p); };
@@ -290,6 +292,8 @@
     const kind = $('#ph-filter-kind').value;
     const list = S.photos.filter((p) => (!fSel.value || p.cameraId === fSel.value) && (
       !kind || (kind === 'review' && (!p.kind || p.needsCheck)) || (kind === 'buck' && p.kind === 'buck') || (kind === 'doe' && (p.kind === 'doe' || p.kind === 'fawn'))));
+    $('#ph-move').innerHTML = camOpts; S.shownPhotos = list;
+    $('#ph-move-go').disabled = !list.length || !S.cameras.length;
     const grid = $('#photo-grid'); grid.innerHTML = '';
     if (!list.length) grid.innerHTML = '<div class="empty">No photos here yet.</div>';
     const shown = list.slice(0, 200); shown.forEach((p) => grid.appendChild(photoCard(p)));
@@ -298,8 +302,10 @@
 
   /** Import a batch file saved by the Buck ID page that runs inside Claude. */
   async function importBatch(file) {
-    const camId = $('#up-camera').value;
-    if (!camId) { toast('Add a camera on the Map tab first, then pick it here.'); return; }
+    const fallbackCam = $('#up-camera').value;
+    if (!S.cameras.length) { toast('Add your cameras on the Map tab first.'); return; }
+    const camByName = (n) => n && S.cameras.find((c) => c.name.trim().toLowerCase() === String(n).trim().toLowerCase());
+    const perCam = {};
     let data;
     try { data = JSON.parse(await file.text()); } catch { toast('That file could not be read.'); return; }
     if (!data || data.app !== 'deer-whisperer-batch' || !Array.isArray(data.photos)) { toast('This is not a Buck ID batch file.', 4000); return; }
@@ -308,7 +314,8 @@
     let added = 0, skipped = 0, newBucks = 0;
     for (const bp of data.photos) {
       prog.textContent = `Importing ${added + skipped + 1} of ${data.photos.length}…`;
-      if (S.photos.some((x) => x.cameraId === camId && x.fileName === bp.fileName && x.takenAt === bp.takenAt)) { skipped++; continue; }
+      const cam = camByName(bp.cameraName), camId = cam ? cam.id : fallbackCam;
+      if (S.photos.some((x) => x.fileName === bp.fileName && x.takenAt === bp.takenAt)) { skipped++; continue; }
       const blob = await Store.dataURLToBlob(bp.image);
       const p = { id: Store.uid(), cameraId: camId, takenAt: bp.takenAt, exifTrusted: !!bp.exifTrusted, kind: bp.kind || '', buckId: '', travel: bp.travel || '',
         blob, thumb: await makeThumb(blob), fileName: bp.fileName, added: Date.now(), needsCheck: !bp.confirmed, ai: bp.ai ? { at: Date.now(), result: bp.ai, via: 'buck-id' } : undefined };
@@ -321,24 +328,24 @@
         }
         p.buckId = b.id;
       }
-      await Store.put('photos', p); S.photos.push(p); added++;
+      await Store.put('photos', p); S.photos.push(p); added++; perCam[camId] = (perCam[camId] || 0) + 1;
     }
     S.photos.sort((a, b) => (b.takenAt || 0) - (a.takenAt || 0));
-    prog.textContent = `Imported ${added} photo${added === 1 ? '' : 's'} into ${camName(camId)}` + (newBucks ? `, added ${newBucks} new buck${newBucks > 1 ? 's' : ''}` : '') + (skipped ? ` (${skipped} already here, skipped)` : '') + '.';
+    prog.textContent = `Imported ${added} photo${added === 1 ? '' : 's'}${added ? ': ' + Object.entries(perCam).map(([id, n]) => `${n} to ${camName(id)}`).join(', ') : ''}` + (newBucks ? `, added ${newBucks} new buck${newBucks > 1 ? 's' : ''}` : '') + (skipped ? ` (${skipped} already here, skipped)` : '') + '.';
     renderPhotos(); dataChanged(true);
   }
 
   /** Save the buck roster (names, notes, one reference photo each) for the Buck ID page. */
   function exportRoster() {
-    if (!S.bucks.length) { toast('No bucks to send yet.'); return; }
+    if (!S.bucks.length && !S.cameras.length) { toast('Add some cameras or bucks first.'); return; }
     const bucks = S.bucks.map((b) => {
       const ref = S.photos.find((p) => p.id === b.refPhotoId) || S.photos.find((p) => p.buckId === b.id);
       return { name: b.name, points: b.points || '', description: b.description || '', refThumb: ref ? ref.thumb : '' };
     });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: 'deer-whisperer-roster', version: 1, bucks })], { type: 'application/json' }));
+    a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: 'deer-whisperer-roster', version: 1, bucks, cameras: S.cameras.map((c) => ({ name: c.name })) })], { type: 'application/json' }));
     a.download = 'deer-whisperer-roster.json'; a.click();
-    toast('Roster saved. In Buck ID, tap “Import roster from app”.', 4000);
+    toast('Saved. In Buck ID, tap “Import bucks & cameras from app”.', 4000);
   }
 
   // ---------- bucks ----------
@@ -523,6 +530,13 @@
       }, () => toast('Could not get your location'));
     };
     $('#up-files').onchange = (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) handleUpload(fs); };
+    $('#ph-move-go').onclick = async () => {
+      const to = $('#ph-move').value, list = S.shownPhotos || [];
+      if (!to || !list.length) return;
+      if (!confirm(`Move ${list.length} photo${list.length > 1 ? 's' : ''} to ${camName(to)}?`)) return;
+      for (const p of list) { p.cameraId = to; await Store.put('photos', p); }
+      toast(`Moved ${list.length} photo${list.length > 1 ? 's' : ''} to ${camName(to)}`); renderPhotos(); dataChanged(true);
+    };
     $('#ph-filter-cam').onchange = renderPhotos; $('#ph-filter-kind').onchange = renderPhotos;
     $('#plan-target').onchange = (e) => { S.target = e.target.value; renderPlan(); };
     $('#plan-refresh').onclick = async () => { $('#plan-status').textContent = 'Loading weather…'; await ensureWeather(true); dataChanged(true); };

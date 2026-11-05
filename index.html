@@ -67,7 +67,7 @@
           <label class="check"><input type="checkbox" id="up-ai"> Identify with AI</label>
           <label class="file-btn ghost">⬆ Import from Buck ID<input id="up-batch" type="file" accept="application/json,.json" hidden></label>
         </div>
-        <p class="muted small">Date/time is read from the photo's EXIF data (most trail cams write it). You can fix it on each card. Identified photos in Claude's Buck ID page? Pick the camera, then use <b>Import from Buck ID</b>.</p>
+        <p class="muted small">Date/time is read from the photo's EXIF data (most trail cams write it). You can fix it on each card. Identified photos in Claude's Buck ID page? Use <b>Import from Buck ID</b>: each photo goes to the camera with the same name, and any without one go to the camera picked here.</p>
         <div id="up-progress" class="muted"></div>
       </div>
       <div class="toolbar">
@@ -76,13 +76,15 @@
           <option value="">All</option><option value="review">Needs review</option><option value="buck">Bucks</option><option value="doe">Does/fawns</option>
         </select></label>
         <span id="ph-count" class="muted"></span>
+        <label>Move shown photos to <select id="ph-move"></select></label>
+        <button id="ph-move-go" class="ghost">Move</button>
       </div>
       <div id="photo-grid" class="grid"></div>
     </section>
 
     <!-- BUCKS -->
     <section id="tab-bucks" class="tab">
-      <div class="toolbar"><button id="add-buck">＋ New buck</button><button id="export-roster" class="ghost">Send roster to Buck ID</button></div>
+      <div class="toolbar"><button id="add-buck">＋ New buck</button><button id="export-roster" class="ghost">Send bucks &amp; cameras to Buck ID</button></div>
       <div id="buck-list" class="grid wide"></div>
     </section>
 
