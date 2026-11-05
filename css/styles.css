@@ -79,6 +79,12 @@ main { max-width: 1100px; margin: 0 auto; padding: 12px 16px 60px; }
 .best { background: var(--surface); border: 1px solid var(--border); border-left: 6px solid var(--good); border-radius: var(--radius); padding: .6rem .8rem; cursor: pointer; }
 .best .head { display: flex; justify-content: space-between; gap: .5rem; font-weight: 600; }
 .score { font-variant-numeric: tabular-nums; font-weight: 700; }
+.bucks { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .4rem; }
+.bucks .pill { margin: 0; font-size: .8rem; padding: .1rem .55rem; border: 1px solid var(--border); }
+.pill.chance-good { background: var(--good); color: #fff; border-color: transparent; }
+.pill.chance-possible { background: var(--s2); }
+.pill.chance-outside { background: transparent; color: var(--muted); }
+.why { margin-top: .2rem; } .why summary { cursor: pointer; color: var(--muted); }
 .reasons { margin: .3rem 0 0; padding: 0; list-style: none; font-size: .88rem; }
 .reasons li::before { content: "• "; }
 .reasons li.p::before { content: "＋ "; color: var(--good); font-weight: 700; }

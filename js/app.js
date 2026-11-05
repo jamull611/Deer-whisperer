@@ -390,7 +390,14 @@
   function sitDetail(r) {
     const wx = r.wx ? `${Math.round(r.wx.temp)}°F · ${Geo.compass(r.wx.windDir)} ${Math.round(r.wx.wind)} mph (gust ${Math.round(r.wx.gust)}) · ${r.wx.pressure ? r.wx.pressure.toFixed(2) + ' inHg' : ''} · ${r.wx.precip > 0.01 ? r.wx.precip.toFixed(2) + '" rain' : 'dry'}` : 'No forecast';
     return `<div class="head"><span>${sitTitle(r)}</span><span class="score">${r.score}</span></div>
-      <div class="small muted">${Engine.fmtTime(r.start)}–${Engine.fmtTime(r.end)} · ${wx} · ${Astro.phaseEmoji(r.moon.phase)} ${Math.round(r.moon.fraction * 100)}%</div>${reasonList(r)}`;
+      <div class="small muted">${Engine.fmtTime(r.start)}–${Engine.fmtTime(r.end)} · ${wx} · ${Astro.phaseEmoji(r.moon.phase)} ${Math.round(r.moon.fraction * 100)}%</div>${buckLine(r)}${reasonList(r)}`;
+  }
+  const CHANCE = { good: 'Good chance', possible: 'Possible', outside: 'Outside chance' };
+  function buckLine(r) {
+    if (S.target || !S.bucks.length) return '';
+    if (!r.bucks || !r.bucks.length) return '<div class="bucks small muted">No named bucks seen near this stand yet.</div>';
+    return `<div class="bucks">${r.bucks.slice(0, 6).map((x) => `<span class="pill chance-${x.level}" title="${esc(x.why)}">🦌 ${esc(x.buck.name)} · ${CHANCE[x.level]}</span>`).join('')}</div>
+      <details class="small why"><summary>Why these bucks</summary><ul class="reasons">${r.bucks.slice(0, 6).map((x) => `<li><b>${esc(x.buck.name)}</b>: ${esc(x.why)}</li>`).join('')}</ul></details>`;
   }
 
   function renderPlan() {
@@ -417,7 +424,7 @@
 
     const sts = sightings();
     const patterns = Object.fromEntries(S.bucks.map((b) => [b.id, Engine.buckPattern(b, sts)]));
-    const sits = S.stands.length ? Engine.planSits({ stands: S.stands, sightings: sts, weather: S.weather, settings: S.settings, targetBuckId: S.target || null, patterns }) : [];
+    const sits = S.stands.length ? Engine.planSits({ stands: S.stands, sightings: sts, weather: S.weather, settings: S.settings, targetBuckId: S.target || null, patterns, bucks: S.bucks }) : [];
 
     // best list
     const perStand = {};

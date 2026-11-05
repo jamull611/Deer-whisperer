@@ -230,7 +230,46 @@
   function fmtTime(d) { return new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
 
   /** Every remaining AM/PM sit for each stand across the forecast. */
-  function planSits({ stands, sightings, weather, settings, targetBuckId, patterns, now = Date.now(), days = 16 }) {
+  /**
+   * Which named bucks you might see on a sit, from each buck's own sightings near the stand
+   * (recency, distance, time of day) and whether the sit's wind keeps your scent off his routes.
+   */
+  function bucksForSit(r, bucks, ctx) {
+    const { sightings, cfg, patterns, now } = ctx;
+    const out = [];
+    for (const b of bucks) {
+      let raw = 0, n = 0, last = 0, same = 0;
+      const cams = {};
+      for (const s of sightings) {
+        if (s.buckId !== b.id) continue;
+        const d = Geo.distanceYd(r.stand, s.cam);
+        if (d > cfg.radiusYd) continue;
+        const ageDays = Math.max(0, (now - s.takenAt) / DAY);
+        const pm = s.period === r.which ? 1 : s.period === 'midday' ? 0.5 : s.period === 'night' ? 0.2 : 0.35;
+        raw += Math.pow(0.5, ageDays / cfg.halfLifeDays) * (1 - 0.6 * d / cfg.radiusYd) * pm;
+        n++; last = Math.max(last, s.takenAt); cams[s.cam.name] = (cams[s.cam.name] || 0) + 1;
+        if (s.period === r.which) same++;
+      }
+      if (!n) continue;
+      let chance = 1 - Math.exp(-raw / 2);
+      const why = [];
+      const daysAgo = Math.round((now - last) / DAY);
+      why.push(`seen ${n}× at ${Object.keys(cams).join(', ')}, last ${daysAgo <= 0 ? 'today' : daysAgo === 1 ? 'yesterday' : daysAgo + ' days ago'}`);
+      if (same) why.push(`${same} in the ${r.which === 'AM' ? 'morning' : 'evening'}`);
+      if (r.wx && r.wx.windDir != null) {
+        const w = windSafety(r.stand, r.wx.windDir, threatPoints(r.stand, sightings, cfg, b.id), cfg);
+        chance *= 0.45 + 0.55 * w;
+        if (w < 0.4) why.push('wind blows toward his travel');
+        const tw = (patterns && patterns[b.id] && patterns[b.id].topWinds) || [];
+        if (tw.includes(Geo.compass8(r.wx.windDir))) { chance = Math.min(1, chance * 1.15); why.push(`has shown on ${Geo.compass8(r.wx.windDir)} winds`); }
+      }
+      const level = chance >= 0.5 ? "good" : chance >= 0.2 ? "possible" : chance >= 0.05 ? "outside" : null;
+      if (level) out.push({ buck: b, chance, level, why: why.join('; ') });
+    }
+    return out.sort((a, b) => b.chance - a.chance);
+  }
+
+  function planSits({ stands, sightings, weather, settings, targetBuckId, patterns, bucks = [], now = Date.now(), days = 16 }) {
     const cfg = { ...DEFAULTS, ...(settings || {}) };
     const ctx = { sightings, weather, cfg, targetBuckId, patterns, now };
     const lastHour = weather && weather.hours.length ? weather.hours[weather.hours.length - 1].t : now + 7 * DAY;
@@ -240,7 +279,7 @@
       if (day > lastHour) break;
       for (const which of ['AM', 'PM']) for (const st of stands) {
         const r = rateSit(st, day, which, ctx);
-        if (r) out.push(r);
+        if (r) { r.bucks = bucks.length ? bucksForSit(r, targetBuckId ? bucks.filter((b) => b.id === targetBuckId) : bucks, ctx) : []; out.push(r); }
       }
     }
     return out;
