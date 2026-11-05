@@ -60,6 +60,7 @@ js/engine.js      buck patterns, sit scoring, stand recommendations
 js/ai.js          optional Claude vision buck ID
 js/store.js       IndexedDB storage + backup/restore
 js/demo.js        demo property generator
+sw.js             service worker (installable app, opens offline)
 js/app.js         UI wiring
 vendor/           Leaflet 1.9.4, exifr 7.1.3 (bundled so the app loads with poor signal)
 ```

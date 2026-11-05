@@ -490,6 +490,7 @@
   }
 
   window.addEventListener('DOMContentLoaded', async () => {
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker not registered', e));
     bind();
     await boot();
     let tab = 'plan'; try { tab = localStorage.getItem('dw.tab') || 'plan'; } catch { /* ignore */ }
