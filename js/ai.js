@@ -33,7 +33,7 @@
           type: 'object', additionalProperties: false,
           required: ['kind', 'match_buck_id', 'match_confidence', 'est_points', 'antler_description', 'distinguishing_features', 'suggested_name', 'movement_in_frame'],
           properties: {
-            kind: { type: 'string', enum: ['buck', 'doe', 'fawn', 'unknown_deer', 'other_animal'] },
+            kind: { type: 'string', enum: ['buck', 'doe', 'fawn', 'unknown_deer', 'coyote', 'bobcat', 'bear', 'hog', 'turkey', 'fox', 'other_animal'] },
             match_buck_id: { type: 'string', description: 'id of the matching known buck, or "none"' },
             match_confidence: { type: 'string', enum: ['high', 'medium', 'low', 'none'] },
             est_points: { type: 'integer', description: 'estimated total antler points, 0 if not a buck or not visible' },
@@ -51,7 +51,7 @@
   };
 
   const SYSTEM = `You are an expert whitetail deer biologist helping a hunter catalogue trail-camera photos.
-For each photo, identify every deer. For bucks, compare carefully against the reference bucks provided
+For each photo, identify every deer, and also list any other animals (coyote, bobcat, black bear, hog, turkey, fox, or other_animal) as their own entries. For bucks, compare carefully against the reference bucks provided
 (antler frame shape, tine count and length, brow tines, spread, kickers/stickers, drop tines, body size, scars, ear notches).
 Only report a match when the antler/body evidence actually supports it; otherwise use match_buck_id "none" and propose a suggested_name.
 Antlers drop in winter and regrow each year, so between seasons rely on body features and say so in notes.

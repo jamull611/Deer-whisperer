@@ -88,6 +88,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 12px 16px 60px; }
 .pattern { border-top: 1px solid var(--border); padding-top: .4rem; margin-top: .2rem; }
 .pattern .pill { vertical-align: 1px; }
 .why { margin-top: .2rem; }
+.pred { margin-top: .4rem; padding: .35rem .5rem; border-left: 3px solid var(--bad); background: var(--surface-2); border-radius: 6px; }
 #hunt-map { height: min(45vh, 360px); border-radius: var(--radius); border: 1px solid var(--border); }
 #hf-outcome button.on { background: var(--accent); color: var(--accent-text); border-color: transparent; }
 .obs-list { display: grid; gap: .4rem; margin-top: .5rem; }

@@ -77,6 +77,27 @@
     }));
   }
 
+  const DEER_KINDS = ['buck', 'doe', 'fawn', 'deer'];
+  const PREDATORS = { coyote: 'Coyotes', bobcat: 'Bobcats', bear: 'Bears' };
+  const isDeer = (s) => DEER_KINDS.includes(s.kind);
+
+  /**
+   * Predators seen near a stand recently (a note for the hunter, not part of the score).
+   * Returns [{ kind, label, visits, lastAt, night, cams: {name: yds} }], most visits first.
+   */
+  function predatorFlags(stand, wildlife, settings, now = Date.now(), days = 14) {
+    const cfg = config(settings), out = {};
+    for (const s of wildlife) {
+      if (!PREDATORS[s.kind] || now - s.takenAt > days * DAY || s.takenAt > now) continue;
+      const d = Geo.distanceYd(stand, s.cam);
+      if (!within(d, cfg.radiusYd)) continue;
+      const f = (out[s.kind] = out[s.kind] || { kind: s.kind, label: PREDATORS[s.kind], visits: 0, lastAt: 0, night: 0, cams: {} });
+      f.visits++; f.lastAt = Math.max(f.lastAt, s.takenAt); if (s.period === 'night') f.night++;
+      f.cams[s.cam.name] = Math.round(d);
+    }
+    return Object.values(out).sort((a, b) => b.visits - a.visits);
+  }
+
   /** Human-readable pattern for one buck. */
   function buckPattern(buck, sightings) {
     const mine = sightings.filter((s) => s.buckId === buck.id).sort((a, b) => a.takenAt - b.takenAt);
@@ -456,5 +477,5 @@
     return { winds: goodWindsFor(stand, pts, cfg), source: 'computed' };
   }
 
-  window.Engine = { spotAllowed, DEFAULTS, enrichSightings, buckPattern, conditionPatterns, planSits, recommendStands, standWinds, period, fmtTime };
+  window.Engine = { isDeer, predatorFlags, PREDATORS, spotAllowed, DEFAULTS, enrichSightings, buckPattern, conditionPatterns, planSits, recommendStands, standWinds, period, fmtTime };
 })();

@@ -6,7 +6,11 @@
   const DIRS16 = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
   const WIND8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   const TRAVEL = { '': 'Not sure / standing', L2R: 'Left → right', R2L: 'Right → left', toward: 'Toward camera', away: 'Away from camera' };
-  const KINDS = { '': '— needs review —', buck: 'Buck', doe: 'Doe', fawn: 'Fawn', none: 'No deer' };
+  const KINDS = { '': '— needs review —', buck: 'Buck', doe: 'Doe', fawn: 'Fawn', none: 'No animal / empty' };
+  const OTHER_KINDS = { coyote: 'Coyote', bobcat: 'Bobcat', bear: 'Bear', hog: 'Hog', turkey: 'Turkey', fox: 'Fox', other: 'Other animal' };
+  const ALL_KINDS = { ...KINDS, ...OTHER_KINDS };
+  const kindOptions = (sel) => Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${sel === k ? 'selected' : ''}>${v}</option>`).join('') +
+    `<optgroup label="Other animals">${Object.entries(OTHER_KINDS).map(([k, v]) => `<option value="${k}" ${sel === k ? 'selected' : ''}>${v}</option>`).join('')}</optgroup>`;
 
   const S = { cameras: [], stands: [], bucks: [], photos: [], settings: {}, weather: null, weatherErr: null, recs: [], target: '' };
 
@@ -51,7 +55,17 @@
     }
     return { cams, photos };
   }
-  const sightings = () => { const hs = huntSightings(); return Engine.enrichSightings([...S.photos, ...hs.photos], [...S.cameras, ...hs.cams], S.weather); };
+  const allSightings = () => { const hs = huntSightings(); return Engine.enrichSightings([...S.photos, ...hs.photos], [...S.cameras, ...hs.cams], S.weather); };
+  /** Deer only: everything that drives stand scores, buck chances and patterns. */
+  const sightings = () => allSightings().filter(Engine.isDeer);
+  /** Other animals (predators, turkeys, hogs...): shown as notes, never scored. */
+  const wildlife = () => allSightings().filter((s) => !Engine.isDeer(s));
+  function predatorNote(stand) {
+    const f = Engine.predatorFlags(stand, wildlife(), S.settings);
+    if (!f.length) return '';
+    const ago = (t) => { const d = Math.round((Date.now() - t) / 864e5); return d <= 0 ? 'today' : d === 1 ? 'yesterday' : d + ' days ago'; };
+    return `<div class="pred small">⚠ <b>Predators near this stand</b> (last 14 days): ${f.map((x) => `${x.label.toLowerCase()} ×${x.visits}${x.night ? ` (${x.night} at night)` : ''}, last ${ago(x.lastAt)} at ${Object.entries(x.cams).map(([c, yd]) => `${esc(c)} (${yd} yds)`).join(', ')}`).join('; ')}. Deer may be jumpier or move later. This is a note only and doesn't change the score.</div>`;
+  }
   const camName = (id) => (S.cameras.find((c) => c.id === id) || {}).name || '—';
   const buckName = (id) => (S.bucks.find((b) => b.id === id) || {}).name || '—';
 
@@ -195,7 +209,7 @@
   function standForm(s, sts) {
     const d = document.createElement('div');
     const w = Engine.standWinds(s, sts, S.settings);
-    const outside = !onProperty(s) ? '<div class="small" style="color:#c92a2a">⚠ This stand is outside your property line.</div>' : '';
+    const outside = (!onProperty(s) ? '<div class="small" style="color:#c92a2a">⚠ This stand is outside your property line.</div>' : '') + predatorNote(s).replace('class="pred small"', 'class="pred small" style="color:#222"');
     const sugg = outside + (w.source === 'computed' ? `<div class="small">From your camera data, best winds: <b>${w.winds.join(', ') || 'none clear'}</b></div>` : '');
     d.innerHTML = `<label>Name<input data-f="name" value="${esc(s.name)}"></label>
       <label>Type<select data-f="type">${['Ladder', 'Hang-on', 'Climber', 'Ground blind', 'Box blind', 'Saddle'].map((t) => `<option ${s.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
@@ -382,8 +396,8 @@
       if (!r.deer_present || !r.animals.length) { p.kind = 'none'; }
       else {
         // Focus on the most interesting animal: a buck if there is one.
-        const a = r.animals.find((x) => x.kind === 'buck') || r.animals[0];
-        p.kind = a.kind === 'buck' ? 'buck' : a.kind === 'fawn' ? 'fawn' : a.kind === 'doe' ? 'doe' : '';
+        const a = r.animals.find((x) => x.kind === 'buck') || r.animals.find((x) => ['doe', 'fawn'].includes(x.kind)) || r.animals[0];
+        p.kind = ['buck', 'doe', 'fawn'].includes(a.kind) ? a.kind : OTHER_KINDS[a.kind] ? a.kind : a.kind === 'other_animal' ? 'other' : '';
         if (['L2R', 'R2L', 'toward', 'away'].includes(a.movement_in_frame)) p.travel = a.movement_in_frame;
         if (a.kind === 'buck') {
           const match = S.bucks.find((b) => b.id === a.match_buck_id);
@@ -410,7 +424,7 @@
         <label><select data-f="cam" aria-label="Camera">${S.cameras.map((c) => `<option value="${c.id}" ${p.cameraId === c.id ? 'selected' : ''}>📷 ${esc(c.name)}</option>`).join('')}${S.cameras.some((c) => c.id === p.cameraId) ? '' : '<option value="" selected>📷 No camera</option>'}</select></label>
         <div class="meta">${fmtDT(p.takenAt)} ${p.kind && cam ? `· ${Engine.period(p.takenAt, cam.lat, cam.lng)}` : ''}</div>
         ${ai ? `<div class="small"><span class="pill ai">AI</span>${esc(aiA ? `${aiA.kind}${aiA.est_points ? ` ~${aiA.est_points}pt` : ''}${aiA.match_confidence !== 'none' ? ` · match ${aiA.match_confidence}` : ''}. ${aiA.antler_description || ''}` : ai.notes)}</div>` : ''}
-        <label><select data-f="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${p.kind === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label><select data-f="kind">${kindOptions(p.kind || '')}</select></label>
         <label ${p.kind === 'buck' ? '' : 'hidden'}><select data-f="buck"><option value="">Which buck?</option>${S.bucks.map((b) => `<option value="${b.id}" ${p.buckId === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}<option value="__new">＋ New buck${p.aiSuggest ? ` (“${esc(p.aiSuggest.name)}”)` : ''}…</option></select></label>
         <label ${p.kind && p.kind !== 'none' ? '' : 'hidden'}>Moving in photo<select data-f="travel">${Object.entries(TRAVEL).map(([k, v]) => `<option value="${k}" ${p.travel === k || (!p.travel && !k) ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
         ${heading != null ? `<div class="small">Heading <b>${Geo.compass(heading)}</b></div>` : p.travel && cam && cam.facing == null ? '<div class="small muted">Set the camera’s facing on the map to get a heading.</div>' : ''}
@@ -446,9 +460,10 @@
     const fSel = $('#ph-filter-cam'), fk = fSel.value; fSel.innerHTML = '<option value="">All</option>' + camOpts; fSel.value = fk;
     const kind = $('#ph-filter-kind').value;
     const list = S.photos.filter((p) => (!fSel.value || p.cameraId === fSel.value) && (
-      !kind || (kind === 'review' && (!p.kind || p.needsCheck)) || (kind === 'buck' && p.kind === 'buck') || (kind === 'doe' && (p.kind === 'doe' || p.kind === 'fawn'))));
+      !kind || (kind === 'review' && (!p.kind || p.needsCheck)) || (kind === 'buck' && p.kind === 'buck') || (kind === 'doe' && (p.kind === 'doe' || p.kind === 'fawn')) || (kind === 'other' && !!OTHER_KINDS[p.kind])));
     $('#ph-move').innerHTML = camOpts; S.shownPhotos = list;
-    $('#ph-tag').innerHTML = '<option value="doe">Doe</option><option value="fawn">Fawn</option><option value="none">No deer</option><option value="buck:">Buck (unknown)</option>' + S.bucks.map((b) => `<option value="buck:${b.id}">Buck: ${esc(b.name)}</option>`).join('');
+    $('#ph-tag').innerHTML = '<option value="doe">Doe</option><option value="fawn">Fawn</option><option value="none">No animal / empty</option><option value="buck:">Buck (unknown)</option>' + S.bucks.map((b) => `<option value="buck:${b.id}">Buck: ${esc(b.name)}</option>`).join('') +
+      `<optgroup label="Other animals">${Object.entries(OTHER_KINDS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</optgroup>`;
     $('#ph-tag-go').disabled = !list.length;
     $('#ph-undo').hidden = !S.lastBulk;
     const rec = recoverableBucks().length;
@@ -537,7 +552,7 @@
 
   // ---------- hunt log ----------
   const OUTCOME = { none: 'Saw nothing', does: 'Saw deer, no bucks', bucks: 'Saw bucks', shot: 'Shot a buck 🎯' };
-  const OBS_KIND = { doe: 'Doe', fawn: 'Fawn', buck: 'Buck', deer: 'Deer (not sure)' };
+  const OBS_KIND = { doe: 'Doe', fawn: 'Fawn', buck: 'Buck', deer: 'Deer (not sure)', coyote: 'Coyote', bobcat: 'Bobcat', bear: 'Bear', hog: 'Hog', turkey: 'Turkey', other: 'Other animal' };
   const DIR8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
   let huntMap = null, huntLayer = null, draft = null;
 
@@ -662,7 +677,25 @@
   }
 
   // ---------- bucks ----------
+  /** Other animals by species: visits, cameras, timing, last seen. */
+  function renderWildlife() {
+    const box = $('#wildlife'); if (!box) return;
+    const ws = wildlife(), by = {};
+    for (const s of ws) (by[s.kind] = by[s.kind] || []).push(s);
+    const kinds = Object.keys(by).sort((a, b) => by[b].length - by[a].length);
+    if (!kinds.length) { box.innerHTML = ''; return; }
+    const now = Date.now(), DAY = 864e5;
+    box.innerHTML = `<h2>Other wildlife</h2><div class="card small"><ul class="reasons">${kinds.map((k) => {
+      const list = by[k], recent = list.filter((s) => now - s.takenAt <= 30 * DAY).length, night = list.filter((s) => s.period === 'night').length;
+      const cams = {}; list.forEach((s) => (cams[s.cam.name] = (cams[s.cam.name] || 0) + 1));
+      const top = Object.entries(cams).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([c, n]) => `${esc(c)} ×${n}`).join(', ');
+      const last = Math.max(...list.map((s) => s.takenAt)), ago = Math.round((now - last) / DAY);
+      return `<li class="${Engine.PREDATORS[k] ? 'n' : ''}"><b>${ALL_KINDS[k] || k}</b>${Engine.PREDATORS[k] ? ' (predator)' : ''}: ${list.length} visit${list.length > 1 ? 's' : ''} (${recent} in the last 30 days), ${night === list.length ? 'all at night' : night ? `${night} at night` : 'all in daylight'}; ${top}; last seen ${ago <= 0 ? 'today' : ago === 1 ? 'yesterday' : ago + ' days ago'}.</li>`;
+    }).join('')}</ul></div>`;
+  }
+
   function renderBucks() {
+    renderWildlife();
     const box = $('#buck-list'); box.innerHTML = '';
     if (!S.bucks.length) { box.innerHTML = '<div class="empty">No bucks named yet. Tag a buck on a photo (or use AI ID) and choose “＋ New buck”.</div>'; return; }
     const sts = sightings(), cps = condPatterns(sts);
@@ -709,7 +742,7 @@
   function sitDetail(r) {
     const wx = r.wx ? `${Math.round(r.wx.temp)}°F · ${Geo.compass(r.wx.windDir)} ${Math.round(r.wx.wind)} mph (gust ${Math.round(r.wx.gust)}) · ${r.wx.pressure ? r.wx.pressure.toFixed(2) + ' inHg' : ''} · ${r.wx.precip > 0.01 ? r.wx.precip.toFixed(2) + '" rain' : 'dry'}` : 'No forecast';
     return `<div class="head"><span>${sitTitle(r)}</span><span class="score">${r.score}</span></div>
-      <div class="small muted">${Engine.fmtTime(r.start)}–${Engine.fmtTime(r.end)} · ${wx} · ${Astro.phaseEmoji(r.moon.phase)} ${Math.round(r.moon.fraction * 100)}%</div>${buckLine(r)}${reasonList(r)}
+      <div class="small muted">${Engine.fmtTime(r.start)}–${Engine.fmtTime(r.end)} · ${wx} · ${Astro.phaseEmoji(r.moon.phase)} ${Math.round(r.moon.fraction * 100)}%</div>${buckLine(r)}${predatorNote(r.stand)}${reasonList(r)}
       ${r.start <= Date.now() + 2 * 36e5 ? `<button class="tiny ghost log-btn" data-log="${r.stand.id}|${r.day}|${r.which}|${r.score}">📝 Log this hunt</button>` : ''}`;
   }
   const CHANCE = { good: 'Good chance', possible: 'Possible', outside: 'Outside chance' };

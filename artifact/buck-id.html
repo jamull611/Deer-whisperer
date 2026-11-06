@@ -119,7 +119,7 @@
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const uid = () => Math.random().toString(36).slice(2, 10);
   const TRAVEL = { '': 'Not sure / standing', L2R: 'Left → right', R2L: 'Right → left', toward: 'Toward camera', away: 'Away from camera' };
-  const KINDS = { '': '— needs review —', buck: 'Buck', doe: 'Doe', fawn: 'Fawn', none: 'No deer' };
+  const KINDS = { '': '— needs review —', buck: 'Buck', doe: 'Doe', fawn: 'Fawn', none: 'No animal / empty', coyote: 'Coyote', bobcat: 'Bobcat', bear: 'Bear', hog: 'Hog', turkey: 'Turkey', fox: 'Fox', other: 'Other animal' };
   const toast = (m, ms = 2800) => { const t = $('#toast'); t.textContent = m; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), ms); };
   const fmt = (ms) => new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const toLocalInput = (ms) => { const d = new Date(ms); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
@@ -285,7 +285,8 @@
 
   function aiSummary(p) {
     const r = p.ai; if (!r) return '';
-    if (!r.deer_present || !r.animals || !r.animals.length) return `No deer seen. ${r.notes || ''}`;
+    if (!r.animals || !r.animals.length) return `No animals seen. ${r.notes || ''}`;
+    if (!r.deer_present) return `No deer. Saw: ${r.animals.map((x) => (x.kind === 'other_animal' ? 'other animal' : x.kind)).join(', ')}. ${r.notes || ''}`;
     const a = r.animals.find((x) => x.kind === 'buck') || r.animals[0];
     const m = roster.find((b) => b.id === a.match_buck_id);
     const bm = String(a.match_buck_id || '').startsWith('batch-') && byId(a.match_buck_id.slice(6));
@@ -393,7 +394,7 @@
     lines.push(
       `The LAST image (image ${nImages}) is the new trail-camera photo to identify.`,
       '',
-      'Identify every deer in the new photo. For bucks, compare carefully against the reference bucks: main-frame shape, tine count and length, brow tines, spread, kickers, stickers, drop tines, body size, scars and ear notches.',
+      'Identify every deer in the new photo, and list any other animals too (coyote, bobcat, bear, hog, turkey, fox, or other_animal) as their own entries. For bucks, compare carefully against the reference bucks: main-frame shape, tine count and length, brow tines, spread, kickers, stickers, drop tines, body size, scars and ear notches.',
       'Only report a match when the antler or body evidence supports it; otherwise set match_buck_id to "none" and give three different name ideas in name_ideas (best first).',
       ...NAMING,
       takenNames().length ? `Names already taken (do not reuse them or start with the same word): ${[...new Set(takenNames())].join(', ')}.` : '',
@@ -402,7 +403,7 @@
       'Read the date, time, temperature and camera name or ID from the camera info strip if there is one.',
       '',
       'Reply with only one JSON object in exactly this shape:',
-      '{"deer_present": true, "animals": [{"kind": "buck|doe|fawn|unknown_deer|other_animal", "match_buck_id": "<id or none>", "match_confidence": "high|medium|low|none", "est_points": 8, "antler_description": "...", "distinguishing_features": "...", "name_ideas": ["...", "...", "..."], "movement_in_frame": "L2R|R2L|toward|away|stationary|unknown"}], "overlay_datetime": "YYYY-MM-DDTHH:MM or empty string", "overlay_temperature_f": 41, "camera_label": "camera name or ID printed on the photo, or empty string", "notes": "..."}'
+      '{"deer_present": true, "animals": [{"kind": "buck|doe|fawn|unknown_deer|coyote|bobcat|bear|hog|turkey|fox|other_animal", "match_buck_id": "<id or none>", "match_confidence": "high|medium|low|none", "est_points": 8, "antler_description": "...", "distinguishing_features": "...", "name_ideas": ["...", "...", "..."], "movement_in_frame": "L2R|R2L|toward|away|stationary|unknown"}], "overlay_datetime": "YYYY-MM-DDTHH:MM or empty string", "overlay_temperature_f": 41, "camera_label": "camera name or ID printed on the photo, or empty string", "notes": "..."}'
     );
     return lines.join('\n');
   }
@@ -449,10 +450,10 @@
       if (!r || typeof r !== 'object' || !Array.isArray(r.animals)) throw { code: 'invalid_json', message: 'Unexpected answer' };
       p.ai = r; p.state = 'done'; p.confirmed = false;
       // Pre-fill from the answer; the hunter confirms.
-      const a = r.animals.find((x) => x.kind === 'buck') || r.animals[0];
-      if (!r.deer_present || !a) { p.kind = 'none'; }
+      const a = r.animals.find((x) => x.kind === 'buck') || r.animals.find((x) => x.kind === 'doe' || x.kind === 'fawn') || r.animals[0];
+      if (!a) { p.kind = 'none'; }
       else {
-        p.kind = { buck: 'buck', doe: 'doe', fawn: 'fawn' }[a.kind] || '';
+        p.kind = KINDS[a.kind] && a.kind !== 'none' ? a.kind : a.kind === 'other_animal' ? 'other' : '';
         if (TRAVEL[a.movement_in_frame] && a.movement_in_frame) p.travel = a.movement_in_frame;
         if (a.kind === 'buck') {
           const sure = a.match_confidence === 'high' || a.match_confidence === 'medium';
