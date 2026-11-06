@@ -28,6 +28,7 @@
     };
     S.areas = await Store.getSetting('areas', []);
     S.rejected = await Store.getSetting('rejectedSpots', []);
+    S.lastBulk = await Store.getSetting('lastBulk', null);
     try { S.apiKey = localStorage.getItem('dw.apiKey') || ''; S.model = localStorage.getItem('dw.model') || AI.DEFAULT_MODEL; } catch { S.apiKey = ''; S.model = AI.DEFAULT_MODEL; }
   }
   function center() {
@@ -449,11 +450,32 @@
     $('#ph-move').innerHTML = camOpts; S.shownPhotos = list;
     $('#ph-tag').innerHTML = '<option value="doe">Doe</option><option value="fawn">Fawn</option><option value="none">No deer</option><option value="buck:">Buck (unknown)</option>' + S.bucks.map((b) => `<option value="buck:${b.id}">Buck: ${esc(b.name)}</option>`).join('');
     $('#ph-tag-go').disabled = !list.length;
+    $('#ph-undo').hidden = !S.lastBulk;
+    const rec = recoverableBucks().length;
+    $('#ph-recover').hidden = !rec; $('#ph-recover').textContent = `↺ Restore ${rec} likely buck photo${rec > 1 ? 's' : ''}`;
     $('#ph-move-go').disabled = !list.length || !S.cameras.length;
     const grid = $('#photo-grid'); grid.innerHTML = '';
     if (!list.length) grid.innerHTML = '<div class="empty">No photos here yet.</div>';
     const shown = list.slice(0, 200); shown.forEach((p) => grid.appendChild(photoCard(p)));
     $('#ph-count').textContent = `${list.length} photo${list.length === 1 ? '' : 's'}${list.length > shown.length ? ` (showing ${shown.length})` : ''}`;
+  }
+
+  /**
+   * Photos that are tagged doe/fawn/no deer now but were bucks before: a buck's reference photo,
+   * a photo imported from Buck ID as a buck, or one the AI saw a buck in.
+   */
+  function recoverableBucks() {
+    const out = [];
+    for (const p of S.photos) {
+      if (p.kind === 'buck' || !p.kind) continue;
+      const ref = S.bucks.find((b) => b.refPhotoId === p.id);
+      if (ref) { out.push({ p, buckId: ref.id }); continue; }
+      if (p.importTag && p.importTag.kind === 'buck') { const b = S.bucks.find((x) => x.name.toLowerCase() === String(p.importTag.buckName || '').toLowerCase()); out.push({ p, buckId: b ? b.id : '' }); continue; }
+      const animals = p.ai && p.ai.result && Array.isArray(p.ai.result.animals) ? p.ai.result.animals : [];
+      const a = animals.find((x) => x.kind === 'buck');
+      if (a) { const b = p.ai.via !== 'buck-id' && S.bucks.find((x) => x.id === a.match_buck_id); out.push({ p, buckId: b ? b.id : '' }); }
+    }
+    return out;
   }
 
   /** Import a batch file saved by the Buck ID page that runs inside Claude. */
@@ -467,14 +489,23 @@
     if (!data || data.app !== 'deer-whisperer-batch' || !Array.isArray(data.photos)) { toast('This is not a Buck ID batch file.', 4000); return; }
     const prog = $('#up-progress');
     const byName = (n) => S.bucks.find((b) => b.name.toLowerCase() === String(n).toLowerCase());
-    let added = 0, skipped = 0, newBucks = 0;
+    let added = 0, skipped = 0, newBucks = 0, restored = 0;
     for (const bp of data.photos) {
       prog.textContent = `Importing ${added + skipped + 1} of ${data.photos.length}…`;
       const cam = camByName(bp.cameraName), camId = cam ? cam.id : fallbackCam;
-      if (S.photos.some((x) => x.fileName === bp.fileName && x.takenAt === bp.takenAt)) { skipped++; continue; }
+      const dup = S.photos.find((x) => x.fileName === bp.fileName && x.takenAt === bp.takenAt);
+      if (dup) {
+        // Already here: if Buck ID says it's a buck and it isn't tagged that way any more, put the buck back.
+        const b = bp.kind === 'buck' && bp.buckName ? byName(bp.buckName) : null;
+        if (bp.kind === 'buck' && (dup.kind !== 'buck' || (b && dup.buckId !== b.id))) {
+          dup.kind = 'buck'; dup.buckId = b ? b.id : dup.buckId || ''; dup.importTag = { kind: 'buck', buckName: bp.buckName || '' };
+          await Store.put('photos', dup); restored++;
+        }
+        skipped++; continue;
+      }
       const blob = await Store.dataURLToBlob(bp.image);
       const p = { id: Store.uid(), cameraId: camId, takenAt: bp.takenAt, exifTrusted: !!bp.exifTrusted, kind: bp.kind || '', buckId: '', travel: bp.travel || '',
-        blob, thumb: await makeThumb(blob), fileName: bp.fileName, added: Date.now(), needsCheck: !bp.confirmed, ai: bp.ai ? { at: Date.now(), result: bp.ai, via: 'buck-id' } : undefined };
+        blob, thumb: await makeThumb(blob), fileName: bp.fileName, added: Date.now(), needsCheck: !bp.confirmed, importTag: { kind: bp.kind || '', buckName: bp.buckName || '' }, ai: bp.ai ? { at: Date.now(), result: bp.ai, via: 'buck-id' } : undefined };
       if (bp.kind === 'buck' && bp.buckName) {
         let b = byName(bp.buckName);
         if (!b) {
@@ -487,7 +518,7 @@
       await Store.put('photos', p); S.photos.push(p); added++; perCam[camId] = (perCam[camId] || 0) + 1;
     }
     S.photos.sort((a, b) => (b.takenAt || 0) - (a.takenAt || 0));
-    prog.textContent = `Imported ${added} photo${added === 1 ? '' : 's'}${added ? ': ' + Object.entries(perCam).map(([id, n]) => `${n} to ${camName(id)}`).join(', ') : ''}` + (newBucks ? `, added ${newBucks} new buck${newBucks > 1 ? 's' : ''}` : '') + (skipped ? ` (${skipped} already here, skipped)` : '') + '.';
+    prog.textContent = `Imported ${added} photo${added === 1 ? '' : 's'}${added ? ': ' + Object.entries(perCam).map(([id, n]) => `${n} to ${camName(id)}`).join(', ') : ''}` + (newBucks ? `, added ${newBucks} new buck${newBucks > 1 ? 's' : ''}` : '') + (skipped ? ` (${skipped} already here${restored ? `; ${restored} put back to buck` : ''})` : '') + '.';
     renderPhotos(); dataChanged(true);
   }
 
@@ -870,13 +901,38 @@
     };
     $('#up-files').onchange = (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) handleUpload(fs); };
     $('#ph-tag-go').onclick = async () => {
-      const v = $('#ph-tag').value, list = S.shownPhotos || [];
-      if (!list.length) return;
+      const v = $('#ph-tag').value, shown = S.shownPhotos || [];
+      if (!shown.length) return;
       const [kind, buckId] = v.startsWith('buck:') ? ['buck', v.slice(5)] : [v, ''];
       const label = $('#ph-tag').selectedOptions[0].textContent;
-      if (!confirm(`Mark ${list.length} photo${list.length > 1 ? 's' : ''} as ${label}?`)) return;
+      const all = $('#ph-tag-all').checked;
+      // By default only untagged photos change; tagged ones (especially bucks) are left alone.
+      const list = shown.filter((p) => all || !p.kind);
+      const skippedTagged = shown.length - list.length, bucksHit = list.filter((p) => p.kind === 'buck' && kind !== 'buck').length;
+      if (!list.length) { toast(`All ${shown.length} shown photos are already tagged. Tick “also change photos already tagged” to change them.`, 5000); return; }
+      const msg = `Mark ${list.length} photo${list.length > 1 ? 's' : ''} as ${label}?` + (skippedTagged ? `\n${skippedTagged} already-tagged photo${skippedTagged > 1 ? 's are' : ' is'} left as ${skippedTagged > 1 ? 'they are' : 'it is'}.` : '') + (bucksHit ? `\nWARNING: ${bucksHit} of them ${bucksHit > 1 ? 'are' : 'is'} tagged as a buck now.` : '');
+      if (!confirm(msg)) return;
+      const undo = { at: Date.now(), label, items: list.map((p) => ({ id: p.id, kind: p.kind, buckId: p.buckId || '', needsCheck: !!p.needsCheck, travel: p.travel || '' })) };
+      await Store.setSetting('lastBulk', undo); S.lastBulk = undo;
       for (const p of list) { p.kind = kind; p.buckId = buckId; p.needsCheck = false; if (kind === 'none') p.travel = ''; await Store.put('photos', p); }
-      toast(`Marked ${list.length} photo${list.length > 1 ? 's' : ''} as ${label}`); renderPhotos(); dataChanged(true);
+      $('#ph-tag-all').checked = false;
+      toast(`Marked ${list.length} photo${list.length > 1 ? 's' : ''} as ${label}. Use Undo if that was wrong.`, 4500); renderPhotos(); dataChanged(true);
+    };
+    $('#ph-undo').onclick = async () => {
+      const u = S.lastBulk; if (!u) return;
+      if (!confirm(`Undo marking ${u.items.length} photo${u.items.length > 1 ? 's' : ''} as ${u.label}?`)) return;
+      for (const it of u.items) { const p = S.photos.find((x) => x.id === it.id); if (!p) continue; Object.assign(p, { kind: it.kind, buckId: it.buckId, needsCheck: it.needsCheck, travel: it.travel }); await Store.put('photos', p); }
+      S.lastBulk = null; await Store.setSetting('lastBulk', null);
+      toast('Bulk change undone'); renderPhotos(); dataChanged(true);
+    };
+    $('#ph-recover').onclick = async () => {
+      const found = recoverableBucks();
+      if (!found.length) return;
+      if (!confirm(`Set ${found.length} photo${found.length > 1 ? 's' : ''} back to buck? They'll be outlined in yellow so you can check each one.`)) return;
+      let named = 0;
+      for (const { p, buckId } of found) { p.kind = 'buck'; p.buckId = buckId; p.needsCheck = true; if (buckId) named++; await Store.put('photos', p); }
+      toast(`Restored ${found.length} bucks (${named} with their name). Check the yellow ones.`, 5000);
+      $('#ph-filter-kind').value = 'review'; renderPhotos(); dataChanged(true);
     };
     $('#ph-move-go').onclick = async () => {
       const to = $('#ph-move').value, list = S.shownPhotos || [];
